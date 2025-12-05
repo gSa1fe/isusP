@@ -3,6 +3,7 @@ import { Kanit } from "next/font/google";
 import "./globals.css";
 import Navbar from "@/components/Navbar";
 import FooterWrapper from '@/components/FooterWrapper'
+import { Toaster } from "@/components/ui/sonner"
 
 // ตั้งค่าฟอนต์
 const kanit = Kanit({ 
@@ -27,6 +28,7 @@ export default function RootLayout({
         <Navbar /> 
         {children}
         <FooterWrapper />
+        <Toaster richColors position="top-center" /> 
       </body>
     </html>
   );

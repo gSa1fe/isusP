@@ -138,7 +138,7 @@ export default function CommentSection({ episodeId, comicId }: CommentSectionPro
         <form onSubmit={handleSubmit} className="flex gap-4 mb-8">
           <Avatar className="w-10 h-10 border border-white/10">
              <AvatarImage src={currentUser.user_metadata?.avatar_url} />
-             <AvatarFallback className="bg-primary text-black font-bold">ME</AvatarFallback>
+             <AvatarFallback className="bg-primary text-black font-bold">ฉัน</AvatarFallback>
           </Avatar>
           <div className="flex-1 gap-2 flex flex-col items-end">
              <Textarea 

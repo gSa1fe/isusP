@@ -24,41 +24,65 @@ export default function SignUpPage() {
   })
 
   const handleSignUp = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setLoading(true)
-    setError(null)
+  e.preventDefault()
+  setLoading(true)
+  setError(null)
 
-    try {
-      // 1. ส่งข้อมูลไปสมัครกับ Supabase Auth
-      const { data, error: signUpError } = await supabase.auth.signUp({
-        email: formData.email,
-        password: formData.password,
-        options: {
-          // ส่ง username ไปเก็บใน meta_data เพื่อให้ Trigger ใน Database ดึงไปใส่ตาราง profiles
-          data: {
-            full_name: formData.username, 
-            username: formData.username
-          }
-        }
-      })
+  try {
+    // -----------------------------
+    // ✅ 1) เช็ค username ซ้ำก่อนสมัคร
+    // -----------------------------
+    const { data: existingUser, error: userCheckError } = await supabase
+      .from('profiles')
+      .select('username')
+      .eq('username', formData.username)
+      .maybeSingle()
 
-      if (signUpError) throw signUpError
-
-      // 2. ถ้าสมัครสำเร็จ (และไม่ต้องยืนยัน Email) ให้เด้งไปหน้าแรก
-      if (data.session) {
-        router.push('/')
-        router.refresh()
-      } else {
-        // กรณีต้องยืนยัน Email (ถ้าตั้งค่าไว้)
-        alert('กรุณาเช็คอีเมลเพื่อยืนยันตัวตน!')
-      }
-
-    } catch (err: any) {
-      setError(err.message || 'เกิดข้อผิดพลาดในการสมัครสมาชิก')
-    } finally {
-      setLoading(false)
+    if (existingUser) {
+      throw new Error("Username นี้ถูกใช้แล้ว กรุณาใช้ชื่ออื่น")
     }
+
+    // -----------------------------
+    // ✅ 2) พยายามสมัครสมาชิก
+    // -----------------------------
+    const { data, error: signUpError } = await supabase.auth.signUp({
+      email: formData.email,
+      password: formData.password,
+      options: {
+        data: {
+          full_name: formData.username,
+          username: formData.username
+        }
+      }
+    })
+
+    // -----------------------------
+    // ✅ 3) เช็คอีเมลซ้ำ
+    // -----------------------------
+    if (signUpError) {
+      if (signUpError.message.includes("registered")) {
+        throw new Error("อีเมลนี้ถูกใช้แล้ว กรุณาใช้เมลอื่น")
+      }
+      throw signUpError
+    }
+
+    // -----------------------------
+    // ✅ 4) สมัครสำเร็จ
+    // -----------------------------
+    if (data.session) {
+      router.push('/')
+      router.refresh()
+    } else {
+      alert("กรุณาเช็คอีเมลเพื่อยืนยันตัวตน!")
+    }
+
+  } catch (err: any) {
+    setError(err.message || "เกิดข้อผิดพลาดในการสมัครสมาชิก")
+  } finally {
+    setLoading(false)
   }
+}
+
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background px-4">

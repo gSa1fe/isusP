@@ -3,10 +3,12 @@
 import { useState, useEffect } from 'react'
 import { Star } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { Alert, AlertDescription } from "@/components/ui/alert"
 
 interface RatingSystemProps {
   comicId: string
 }
+
 
 export default function RatingSystem({ comicId }: RatingSystemProps) {
   const [average, setAverage] = useState(0)
@@ -78,7 +80,7 @@ export default function RatingSystem({ comicId }: RatingSystemProps) {
     <div className="flex flex-col gap-1">
        <div className="flex items-center gap-2">
           {/* ดาว */}
-          <div className="flex items-center bg-black/20 rounded-lg p-1 border border-white/5" onMouseLeave={() => setHoverRating(0)}>
+          <div className="flex items-center" onMouseLeave={() => setHoverRating(0)}>
             {[1, 2, 3, 4, 5].map((star) => (
                 <button
                     key={star}
