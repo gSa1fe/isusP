@@ -43,10 +43,11 @@ export async function GET(request: Request) {
           genre, 
           status,
           updated_at,
+          avg_rating,
           episodes (
              episode_number
-          ),
-          comic_ratings (rating)
+          )
+          
         )
       `)
       .eq('user_id', user.id)
@@ -68,10 +69,8 @@ export async function GET(request: Request) {
             : 0
 
         // หา Rating เฉลี่ย
-        const ratings = comic.comic_ratings || []
-        const avgRating = ratings.length > 0
-            ? (ratings.reduce((sum: number, r: any) => sum + r.rating, 0) / ratings.length).toFixed(1)
-            : '0.0'
+        
+        const avgRating = comic.avg_rating ? comic.avg_rating.toFixed(1) : '0.0'
 
         return {
             ...item,

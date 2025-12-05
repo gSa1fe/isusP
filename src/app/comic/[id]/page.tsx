@@ -15,9 +15,9 @@ import CommentSection from '@/components/CommentSection'
 export default function ComicDetail() {
     const { id } = useParams()
     const [loading, setLoading] = useState(true)
-    
+
     // รวมข้อมูลไว้ใน Object เดียว (เหมือนหน้า Home)
-    const [data, setData] = useState<any>(null) 
+    const [data, setData] = useState<any>(null)
 
     // User Specific State
     const [inLibrary, setInLibrary] = useState(false)
@@ -32,7 +32,7 @@ export default function ComicDetail() {
                 // 1. ดึงข้อมูลหลักจาก API (รวม Comic, Episodes, Recs)
                 const res = await fetch(`/api/comics/${id}`, { next: { revalidate: 60 } })
                 if (!res.ok) throw new Error('Failed to fetch comic data')
-                
+
                 const result = await res.json()
                 setData(result)
 
@@ -84,7 +84,7 @@ export default function ComicDetail() {
     const toggleLibrary = async () => {
         const { data: { user } } = await supabase.auth.getUser()
         if (!user) { alert('กรุณาเข้าสู่ระบบ'); return }
-        
+
         setLibraryLoading(true)
         try {
             if (inLibrary) {
@@ -100,10 +100,10 @@ export default function ComicDetail() {
                 })
                 if (res.ok) setInLibrary(true)
             }
-        } catch (error) { 
-            alert('เกิดข้อผิดพลาดในการบันทึก') 
-        } finally { 
-            setLibraryLoading(false) 
+        } catch (error) {
+            alert('เกิดข้อผิดพลาดในการบันทึก')
+        } finally {
+            setLibraryLoading(false)
         }
     }
 
@@ -157,13 +157,13 @@ export default function ComicDetail() {
                                 ) : (
                                     <Button size="lg" disabled className="rounded-full bg-gray-700">ยังไม่มีตอน</Button>
                                 )}
-                                
+
                                 {/* 👇 ปุ่มเพิ่มเข้าชั้น (เปลี่ยนสีตามสถานะ) */}
-                                <Button 
-                                    size="lg" 
-                                    variant="outline" 
-                                    className={`rounded-full border-white/20 hover:bg-white/10 ${inLibrary ? 'bg-green-500/20 text-green-400 border-green-500/50 hover:bg-green-500/30' : 'bg-white/5 text-white'}`} 
-                                    onClick={toggleLibrary} 
+                                <Button
+                                    size="lg"
+                                    variant="outline"
+                                    className={`rounded-full border-white/20 hover:bg-white/10 ${inLibrary ? 'bg-green-500/20 text-green-400 border-green-500/50 hover:bg-green-500/30' : 'bg-white/5 text-white'}`}
+                                    onClick={toggleLibrary}
                                     disabled={libraryLoading}
                                 >
                                     {libraryLoading ? (
@@ -186,7 +186,7 @@ export default function ComicDetail() {
             <div className="container mx-auto px-4 mt-8 grid grid-cols-1 lg:grid-cols-3 gap-8">
                 {/* Left Column */}
                 <div className="lg:col-span-2 space-y-8">
-                    
+
                     {/* Episode List */}
                     <div className="space-y-6">
                         <div className="flex items-center justify-between border-b border-white/10 pb-4">
@@ -256,7 +256,7 @@ export default function ComicDetail() {
                         <Sparkles className="w-6 h-6 text-yellow-500" />
                         <h2 className="text-2xl font-bold text-white">เรื่องที่คุณอาจจะชอบ</h2>
                     </div>
-                    
+
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
                         {recommendations.map((rec: any) => (
                             <Link key={rec.id} href={`/comic/${rec.id}`} className="group block">
@@ -279,11 +279,12 @@ export default function ComicDetail() {
                                         <div className="space-y-1 px-1">
                                             <h3 className="font-bold text-sm md:text-base text-white leading-tight line-clamp-1 group-hover:text-primary transition-colors">{rec.title}</h3>
                                             <div className="flex items-center justify-between text-xs text-gray-500">
-                                                
+
                                                 {/* 👇 ส่วนแสดง Genre แบบเดียวกับหน้า Home */}
                                                 <div className="flex items-center gap-1.5 overflow-hidden max-w-[70%]">
                                                     <span className="truncate text-gray-400">
-                                                        {rec.genre?.slice(0, 2).join(', ') || 'ทั่วไป'}
+                                                        {/* ใส่ ? เพื่อ Optional Chaining ป้องกัน error ถ้า genre เป็น null */}
+                                                        {rec.genre && rec.genre.length > 0 ? rec.genre.slice(0, 2).join(', ') : 'ทั่วไป'}
                                                     </span>
                                                     {rec.genre && rec.genre.length > 2 && (
                                                         <span className="shrink-0 text-[10px] bg-white/10 px-1.5 py-0.5 rounded text-gray-300">
@@ -293,7 +294,7 @@ export default function ComicDetail() {
                                                 </div>
 
                                                 <div className="flex items-center gap-1 text-yellow-500">
-                                                    <Star className="w-3 h-3 fill-yellow-500" /> {rec.rating}
+                                                    <Star className="w-3 h-3 fill-yellow-500" /> {rec.rating || '0.0'}
                                                 </div>
                                             </div>
                                         </div>

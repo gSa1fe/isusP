@@ -15,41 +15,13 @@ export default function LibraryPage() {
   useEffect(() => {
     const fetchLibrary = async () => {
       try {
-        // ดึงข้อมูลจาก API ที่เราเพิ่งแก้
         const res = await fetch('/api/library')
         if (res.ok) {
-          const data = await res.json()
-
-          // Pre-process ข้อมูล (คำนวณ Rating & Ep ล่าสุด)
-          const processed = (data.data || []).map((item: any) => {
-            const c = item.comics
-            if (!c) return null
-
-            // 1. หาตอนล่าสุด (ถ้า API ยังไม่ส่งมา ต้องคำนวณเอง หรือถ้า API ส่งมาแล้วก็ใช้ได้เลย)
-            // หมายเหตุ: API /api/library ที่เราแก้ล่าสุด คืนค่า comics.* แต่ยังไม่ได้ join episodes มา
-            // ดังนั้นตรงนี้ latestEp อาจจะเป็น 0 ถ้าไม่ได้ join เพิ่ม
-            // แต่ถ้า API library ของคุณยังเป็นแบบเดิมที่ join episodes ก็ใช้โค้ดนี้ได้
-            const latestEp = c.episodes?.length > 0
-              ? Math.max(...c.episodes.map((e: any) => e.episode_number))
-              : 0;
-
-            // 2. หาคะแนนเฉลี่ย
-            const ratings = c.comic_ratings || [];
-            const avgRating = ratings.length > 0
-              ? (ratings.reduce((sum: number, r: any) => sum + r.rating, 0) / ratings.length).toFixed(1)
-              : '0.0';
-
-            return {
-              ...item,
-              comics: {
-                ...c,
-                latestEp,
-                rating: avgRating
-              }
-            }
-          }).filter(Boolean)
-
-          setLibrary(processed)
+          const result = await res.json()
+          
+          // ✅ แก้ไข: ใช้ข้อมูลจาก API ตรงๆ ได้เลย ไม่ต้อง map คำนวณซ้ำ
+          // เพราะ API คิดเลขมาให้เสร็จแล้ว (ทั้ง rating และ latestEp)
+          setLibrary(result.data || [])
         }
       } catch (error) {
         console.error("Failed to fetch library")

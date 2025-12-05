@@ -18,8 +18,8 @@ export async function GET() {
       updated_at,
       created_at,
       is_published,
-      episodes(id, episode_number), 
-      comic_ratings(rating)
+      avg_rating,
+      episodes(id, episode_number)
     `
 
     // 2. ✅ แก้ไข Logic วันที่ (สร้าง Date Object ใหม่ทุกครั้ง ไม่แก้ตัวเดิม)
@@ -68,9 +68,7 @@ export async function GET() {
         
         // คำนวณ Rating
         const ratings = c.comic_ratings || []
-        const avgRating = ratings.length > 0
-            ? (ratings.reduce((sum: number, r: any) => sum + r.rating, 0) / ratings.length).toFixed(1)
-            : '0.0'
+        const avgRating = c.avg_rating ? c.avg_rating.toFixed(1) : '0.0'
 
         // ลบ field ชั่วคราวออก
         const { episodes, comic_ratings, ...rest } = c 

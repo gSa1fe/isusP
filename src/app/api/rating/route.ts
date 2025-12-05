@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase-server'
 
-// 1. GET: ดึงคะแนนเฉลี่ย และคะแนนของฉัน
+// ไม่แคช เพื่อให้ได้ข้อมูล Realtime (โดยเฉพาะเวลากดโหวตแล้วค่าเปลี่ยน)
+export const dynamic = 'force-dynamic'
+
 export async function GET(request: Request) {
   const supabase = await createClient()
   const { searchParams } = new URL(request.url)
@@ -10,47 +12,52 @@ export async function GET(request: Request) {
   if (!comic_id) return NextResponse.json({ error: 'Missing comic_id' }, { status: 400 })
 
   try {
-    // 1.1 หาคะแนนเฉลี่ย (Average) และจำนวนคนโหวต (Count)
-    // หมายเหตุ: Supabase JS ไม่มีฟังก์ชัน .avg() โดยตรงแบบง่ายๆ เราจะดึงทั้งหมดมาคำนวณ (ถ้าข้อมูลเยอะมากๆ ควรทำ View ใน SQL แทน)
-    const { data: allRatings, error: avgError } = await supabase
+    // 1. ดึงคะแนนเฉลี่ยจากตาราง comics (เร็วมาก เพราะมี column avg_rating แล้ว)/route.ts]
+    const comicQuery = supabase
+      .from('comics')
+      .select('avg_rating')
+      .eq('id', comic_id)
+      .single()
+
+    // 2. นับจำนวนคนโหวตจากตาราง comic_ratings (ใช้ count='exact' ไม่ต้องโหลดข้อมูลมา)
+    const countQuery = supabase
       .from('comic_ratings')
-      .select('rating')
+      .select('*', { count: 'exact', head: true }) // head: true คือไม่เอาเนื้อหา เอาแต่จำนวน
       .eq('comic_id', comic_id)
 
-    if (avgError) throw avgError
-
-    let average = 0
-    let count = 0
-    
-    if (allRatings && allRatings.length > 0) {
-        count = allRatings.length
-        const sum = allRatings.reduce((acc, curr) => acc + curr.rating, 0)
-        average = parseFloat((sum / count).toFixed(1)) // ทศนิยม 1 ตำแหน่ง
-    }
-
-    // 1.2 หาคะแนนของ User ปัจจุบัน (ถ้าล็อกอิน)
-    let myRating = 0
+    // 3. หาคะแนนของ User ปัจจุบัน (ถ้าล็อกอิน)
     const { data: { user } } = await supabase.auth.getUser()
+    let userRatingQuery = Promise.resolve({ data: null, error: null })
     
     if (user) {
-        const { data: userRating } = await supabase
-            .from('comic_ratings')
-            .select('rating')
-            .eq('comic_id', comic_id)
-            .eq('user_id', user.id)
-            .single()
-        
-        if (userRating) myRating = userRating.rating
+       // @ts-ignore
+       userRatingQuery = supabase
+        .from('comic_ratings')
+        .select('rating')
+        .eq('comic_id', comic_id)
+        .eq('user_id', user.id)
+        .single()
     }
 
-    return NextResponse.json({ average, count, myRating })
+    // ยิง 3 Query พร้อมกัน (Parallel)
+    const [comicRes, countRes, userRes] = await Promise.all([comicQuery, countQuery, userRatingQuery])
+
+    // จัดเตรียมข้อมูลส่งกลับ
+    const average = comicRes.data?.avg_rating || 0
+    const count = countRes.count || 0
+    const myRating = userRes.data?.rating || 0
+
+    return NextResponse.json({ 
+        average: Number(average), // แปลงเป็นตัวเลขให้ชัวร์
+        count, 
+        myRating 
+    })
 
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 }
 
-// 2. POST: ให้คะแนน (Upsert)
 export async function POST(request: Request) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -64,7 +71,7 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: 'Invalid data' }, { status: 400 })
     }
 
-    // ใช้ upsert (Insert or Update)
+    // Upsert คะแนน (Insert หรือ Update)
     const { error } = await supabase
       .from('comic_ratings')
       .upsert({ 
