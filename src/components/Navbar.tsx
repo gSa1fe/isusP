@@ -81,6 +81,9 @@ export default function Navbar() {
       }, [router])
 
   const handleLogout = async () => {
+    setUser(null)
+    setProfile(null)
+    
     await fetch('/api/auth/signout', { method: 'POST' })
     await supabase.auth.signOut()
     router.push('/login')
