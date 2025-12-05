@@ -2,13 +2,13 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase-server'
 import { z } from 'zod'
 
-// ✅ 1. เพิ่ม Validation Schema เพื่อความปลอดภัย
 const addImagesSchema = z.object({
   episode_id: z.string().uuid("Episode ID ไม่ถูกต้อง"),
   images: z.array(z.object({
     image_url: z.string().url("URL รูปภาพไม่ถูกต้อง"),
+    // รับ order_index หรือ page_number มาก็ได้
     order_index: z.number().int().min(0).optional(),
-    page_number: z.number().int().min(0).optional() // รับเผื่อไว้ (บางทีหน้าบ้านส่งมาชื่อนี้)
+    page_number: z.number().int().min(0).optional()
   })).min(1, "ต้องส่งรูปภาพอย่างน้อย 1 รูป")
 })
 
@@ -18,7 +18,7 @@ const deleteImageSchema = z.object({
 })
 
 // =======================================================
-// 🔵 POST: เพิ่มรูปภาพเข้าตอน
+// 🔵 POST: เพิ่มรูปภาพเข้าตอน (เรียงลำดับให้ด้วย)
 // =======================================================
 export async function POST(request: Request) {
   const supabase = await createClient()
@@ -32,23 +32,36 @@ export async function POST(request: Request) {
   
   try {
     const body = await request.json()
-    
-    // ✅ Validate Input
     const validation = addImagesSchema.safeParse(body)
+    
     if (!validation.success) {
         return NextResponse.json({ error: 'ข้อมูลไม่ถูกต้อง', details: validation.error.format() }, { status: 400 })
     }
 
     const { episode_id, images } = validation.data
 
-    // Prepare Data
-    const imageRecords = images.map((img) => ({
-      episode_id,
-      image_url: img.image_url,
-      // ใช้ค่าที่มี หรือ default เป็น 0
-      order_index: img.order_index ?? img.page_number ?? 0, 
-      page_number: img.page_number ?? img.order_index ?? 0
-    }))
+    // 1. หาค่า order_index สูงสุดเดิมก่อน (เพื่อต่อท้าย)
+    const { data: maxOrderData } = await supabase
+        .from('episode_images')
+        .select('order_index')
+        .eq('episode_id', episode_id)
+        .order('order_index', { ascending: false })
+        .limit(1)
+        .single()
+    
+    let nextOrder = (maxOrderData?.order_index || 0) + 1
+
+    // 2. เตรียมข้อมูล (รันเลขต่อให้เองเลย ไม่สนที่ส่งมา เพื่อความชัวร์)
+    const imageRecords = images.map((img) => {
+        const record = {
+            episode_id,
+            image_url: img.image_url,
+            order_index: nextOrder, // ใช้ค่าที่เรารันเอง
+            page_number: nextOrder  // สำรองไว้
+        }
+        nextOrder++;
+        return record;
+    })
 
     const { error } = await supabase
       .from('episode_images')
@@ -56,7 +69,7 @@ export async function POST(request: Request) {
 
     if (error) throw error
 
-    return NextResponse.json({ message: 'Images added successfully' })
+    return NextResponse.json({ message: 'Images added successfully', count: imageRecords.length })
 
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
@@ -64,12 +77,11 @@ export async function POST(request: Request) {
 }
 
 // =======================================================
-// 🔴 DELETE: ลบรูปภาพ
+// 🔴 DELETE: ลบรูปภาพ (เหมือนเดิมแต่เพิ่มความปลอดภัย)
 // =======================================================
 export async function DELETE(request: Request) {
   const supabase = await createClient()
 
-  // Check Admin
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
@@ -78,12 +90,9 @@ export async function DELETE(request: Request) {
 
   try {
     const body = await request.json()
-    
-    // ✅ Validate Input
     const validation = deleteImageSchema.safeParse(body)
-    if (!validation.success) {
-        return NextResponse.json({ error: 'ข้อมูลไม่ถูกต้อง' }, { status: 400 })
-    }
+    
+    if (!validation.success) return NextResponse.json({ error: 'ข้อมูลไม่ถูกต้อง' }, { status: 400 })
 
     const { id, image_url } = validation.data
 
@@ -95,24 +104,17 @@ export async function DELETE(request: Request) {
 
     if (dbError) throw dbError
 
-    // 2. ลบไฟล์จาก Storage (ทำให้ Safe ขึ้น)
+    // 2. ลบไฟล์จาก Storage
     if (image_url) {
         try {
-            // ✅ ใช้ URL Object แกะ Path อย่างถูกวิธี
             const fileUrl = new URL(image_url)
             const pathParts = fileUrl.pathname.split('/')
-            
-            // หาตำแหน่งของ bucket name 'comic-images' แล้วเอา path หลังจากนั้น
             const bucketIndex = pathParts.indexOf('comic-images')
             if (bucketIndex !== -1 && bucketIndex < pathParts.length - 1) {
                 const relativePath = pathParts.slice(bucketIndex + 1).join('/')
-                // ลบจริง
                 await supabase.storage.from('comic-images').remove([relativePath])
             }
-        } catch (urlError) {
-            console.error("Error parsing image URL for deletion:", urlError)
-            // ไม่ต้อง throw เพราะ DB ลบไปแล้ว แค่ไฟล์ขยะค้าง (ยอมรับได้ดีกว่าพังทั้ง flow)
-        }
+        } catch (e) { console.error("URL Parse Error", e) }
     }
 
     return NextResponse.json({ message: 'Image deleted successfully' })
