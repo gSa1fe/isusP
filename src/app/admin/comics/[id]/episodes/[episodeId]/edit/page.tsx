@@ -11,7 +11,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Loader2, Save, ArrowLeft, X, GripVertical, UploadCloud } from 'lucide-react'
 import { useDropzone } from 'react-dropzone'
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd'
-import { toast } from "sonner"
+import { toast } from 'sonner'
 
 // Interface สำหรับเก็บข้อมูลรูปภาพใน State
 interface ImageItem {
@@ -22,18 +22,18 @@ interface ImageItem {
 
 export default function EditEpisodePage() { 
   const router = useRouter()
-  const params = useParams() // 👈 3. เรียกใช้ Hook
+  const params = useParams() 
 
-  // 👇 4. ดึงค่าจาก params (ต้อง cast type เป็น string)
-  // เช็คให้ชัวร์ว่าชื่อโฟลเดอร์ของคุณตั้งว่า [id] และ [episodeId] หรือไม่?
-  // ถ้าโฟลเดอร์ชื่อ [episode_id] ต้องแก้ตรงนี้เป็น params.episode_id
   const comicId = params?.id as string
   const episodeId = params?.episodeId as string 
 
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  
+  // ✅ State สำหรับข้อมูลตอน
   const [title, setTitle] = useState('')
-  const [episodeNumber, setEpisodeNumber] = useState(0)
+  const [episodeNumber, setEpisodeNumber] = useState<string>('') // ใช้ string เพื่อให้แก้ง่าย (ลบจนว่างได้)
+
   // State นี้จะเก็บทั้งรูปเก่าและรูปใหม่ผสมกัน ตามลำดับที่ user จัด
   const [imageList, setImageList] = useState<ImageItem[]>([])
 
@@ -54,7 +54,7 @@ export default function EditEpisodePage() {
       }
 
       setTitle(epData.title)
-      setEpisodeNumber(epData.episode_number)
+      setEpisodeNumber(epData.episode_number.toString()) // ✅ Set ค่าเริ่มต้น
 
       // ดึงรูปภาพและเรียงตาม order_index
       const { data: imgData, error: imgError } = await supabase
@@ -113,7 +113,16 @@ export default function EditEpisodePage() {
 
   // 5. ฟังก์ชันบันทึกข้อมูล (Upload -> Call API)
   const handleSave = async () => {
-    if (!title || imageList.length === 0) return toast.error('กรุณากรอกชื่อตอนและต้องมีรูปภาพอย่างน้อย 1 รูป')
+    if (!title || !episodeNumber || imageList.length === 0) {
+        return toast.error('กรุณากรอกชื่อตอน, ลำดับตอน และต้องมีรูปภาพอย่างน้อย 1 รูป')
+    }
+
+    // ✅ ตรวจสอบว่าเป็นตัวเลขหรือไม่
+    const epNum = parseFloat(episodeNumber)
+    if (isNaN(epNum)) {
+        return toast.error('ลำดับตอนต้องเป็นตัวเลขเท่านั้น')
+    }
+
     setSaving(true)
 
     try {
@@ -149,6 +158,7 @@ export default function EditEpisodePage() {
         body: JSON.stringify({
           id: episodeId,
           title,
+          episode_number: epNum, // ✅ ส่งเลขตอนที่แก้ไขแล้วไปด้วย
           images: finalImagesList // ส่งรายการที่จัดเรียงและได้ URL ครบแล้วไป
         })
       })
@@ -178,7 +188,7 @@ export default function EditEpisodePage() {
         </Button>
         <div>
             <h1 className="text-2xl font-bold text-white">แก้ไขตอนที่ {episodeNumber}</h1>
-            <p className="text-gray-400">จัดการชื่อตอนและจัดเรียงรูปภาพ</p>
+            <p className="text-gray-400">จัดการข้อมูลตอนและจัดเรียงรูปภาพ</p>
         </div>
       </div>
 
@@ -188,12 +198,26 @@ export default function EditEpisodePage() {
         <div className="lg:col-span-1 space-y-6">
             <Card className="bg-[#1a1f29] border-white/10">
                 <CardContent className="p-6 space-y-4">
+                    
+                    {/* ✅ เพิ่มช่องแก้ไขลำดับตอน */}
+                    <div className="space-y-2">
+                        <Label className="text-white">ลำดับตอนที่ (Episode No.)</Label>
+                        <Input 
+                            type="number"
+                            value={episodeNumber} 
+                            onChange={e => setEpisodeNumber(e.target.value)} 
+                            className="bg-black/20 border-white/10 text-white"
+                            placeholder="เช่น 1, 1.5, 2"
+                        />
+                    </div>
+
                     <div className="space-y-2">
                         <Label className="text-white">ชื่อตอน</Label>
                         <Input 
                             value={title} 
                             onChange={e => setTitle(e.target.value)} 
                             className="bg-black/20 border-white/10 text-white"
+                            placeholder="เช่น จุดเริ่มต้น"
                         />
                     </div>
                 </CardContent>

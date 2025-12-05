@@ -2,18 +2,18 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase-server'
 import { z } from 'zod'
 
+// ✅ 1. เพิ่ม episode_number ใน Schema
 const updateEpisodeSchema = z.object({
   id: z.string().uuid({ message: "Invalid Episode ID" }),
   title: z.string().min(1, { message: "Title cannot be empty" }),
+  episode_number: z.number().optional(), // <--- เพิ่มบรรทัดนี้
   images: z.array(z.object({
     id: z.string().optional(),
     image_url: z.string().url(),
   })).min(1, { message: "At least one image is required" })
 })
 
-// -------------------------------------------------------
-// 1. POST: สร้างตอนใหม่ (เหมือนเดิม แต่รีวิวให้มั่นใจว่าถูกต้อง)
-// -------------------------------------------------------
+// ... (POST function เหมือนเดิม ไม่ต้องแก้) ...
 export async function POST(request: Request) {
   const supabase = await createClient()
 
@@ -44,11 +44,10 @@ export async function POST(request: Request) {
 
     if (epError) throw epError
 
-    // Insert Images (ใช้ Promise.all เพื่อความเร็ว)
     const imageRecords = images.map((img: any, index: number) => ({
       episode_id: episode.id,
       image_url: img.image_url,
-      order_index: index + 1 // ใช้ index ตรงๆ ได้เลยถ้าส่งมาเรียงแล้ว
+      order_index: index + 1
     }))
 
     const { error: imgError } = await supabase.from('episode_images').insert(imageRecords)
@@ -63,7 +62,7 @@ export async function POST(request: Request) {
 }
 
 // -------------------------------------------------------
-// 2. PUT: แก้ไขตอน (🔥 จุดที่แก้หลัก: ทำให้เร็วขึ้น)
+// 2. PUT: แก้ไขตอน
 // -------------------------------------------------------
 export async function PUT(request: Request) {
   const supabase = await createClient()
@@ -89,13 +88,15 @@ export async function PUT(request: Request) {
         }, { status: 400 })
     }
 
-    const { id, title, images } = validation.data
+    // ✅ 2. ดึง episode_number ออกมาใช้
+    const { id, title, episode_number, images } = validation.data
 
-    // 1. อัปเดตข้อมูลตอน
+    // 1. อัปเดตข้อมูลตอน (Title / Thumbnail / Episode Number)
     const { error: epError } = await supabase
         .from('episodes')
         .update({ 
-            title, 
+            title,
+            episode_number, // ✅ 3. สั่งบันทึกลง Database
             thumbnail_url: images.length > 0 ? images[0].image_url : null,
             updated_at: new Date().toISOString()
         })
@@ -103,50 +104,37 @@ export async function PUT(request: Request) {
 
     if (epError) throw epError
 
-    // 2. จัดการรูปภาพ (แบบรวดเร็ว 🚀)
+    // 2. จัดการรูปภาพ (Logic เดิมที่ดีอยู่แล้ว)
     
-    // 2.1 ดึงรูปเดิมมาเช็คว่าอันไหนโดนลบ
+    // 2.1 ลบรูปที่ผู้ใช้ลบออก
     const { data: existingImages } = await supabase.from('episode_images').select('id').eq('episode_id', id)
     const existingIds = existingImages?.map(img => img.id) || []
     const incomingIds = images.filter(img => img.id).map(img => img.id as string)
     
-    // ลบรูปที่หายไป
     const idsToDelete = existingIds.filter(oldId => !incomingIds.includes(oldId))
+    
     if (idsToDelete.length > 0) {
-        await supabase.from('episode_images').delete().in('id', idsToDelete)
+        const { error: delError } = await supabase.from('episode_images').delete().in('id', idsToDelete)
+        if (delError) throw delError
     }
 
-    // 2.2 แยกรูปเก่า (Update) กับ รูปใหม่ (Insert)
-    const updates = []
-    const inserts = []
-
-    // วนลูปเตรียมข้อมูล (ยังไม่ยิง DB)
-    for (let i = 0; i < images.length; i++) {
-        const img = images[i]
-        const newOrder = i + 1
-
-        if (img.id) {
-            // รูปเก่า: เตรียม Promise สำหรับ Update
-            updates.push(
-                supabase.from('episode_images')
-                    .update({ order_index: newOrder })
-                    .eq('id', img.id)
-            )
-        } else {
-            // รูปใหม่: เก็บใส่ Array ไว้ Insert ทีเดียว
-            inserts.push({
-                episode_id: id,
-                image_url: img.image_url,
-                order_index: newOrder
-            })
+    // 2.2 เตรียมข้อมูล Upsert
+    const upsertData = images.map((img, index) => {
+        const record: any = {
+            episode_id: id,
+            image_url: img.image_url,
+            order_index: index + 1 // รันเลขใหม่
         }
-    }
+        if (img.id) record.id = img.id
+        
+        return record
+    })
 
-    // ⚡️ ยิงคำสั่ง Parallel (นี่คือจุดที่ทำให้เร็วขึ้นมาก)
-    await Promise.all([
-        ...updates, // ยิง update ทุกรูปพร้อมกัน
-        inserts.length > 0 ? supabase.from('episode_images').insert(inserts) : Promise.resolve() // ยิง insert ทีเดียว
-    ])
+    const { error: upsertError } = await supabase
+        .from('episode_images')
+        .upsert(upsertData)
+
+    if (upsertError) throw upsertError
 
     return NextResponse.json({ success: true, message: 'Episode updated successfully' })
 
@@ -156,9 +144,7 @@ export async function PUT(request: Request) {
   }
 }
 
-// -------------------------------------------------------
-// 3. DELETE: ลบตอน (เหมือนเดิม)
-// -------------------------------------------------------
+// ... (DELETE function เหมือนเดิม) ...
 export async function DELETE(request: Request) {
   const supabase = await createClient()
 
