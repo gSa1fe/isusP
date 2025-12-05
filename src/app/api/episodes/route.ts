@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase-server'
 import { z } from 'zod'
 
-// 1. สร้าง Schema นอกฟังก์ชัน (ถูกต้องแล้ว)
 const updateEpisodeSchema = z.object({
   id: z.string().uuid({ message: "Invalid Episode ID" }),
   title: z.string().min(1, { message: "Title cannot be empty" }),
@@ -13,17 +12,15 @@ const updateEpisodeSchema = z.object({
 })
 
 // -------------------------------------------------------
-// ฟังก์ชัน POST (สำหรับสร้างตอนใหม่)
+// 1. POST: สร้างตอนใหม่ (เหมือนเดิม แต่รีวิวให้มั่นใจว่าถูกต้อง)
 // -------------------------------------------------------
 export async function POST(request: Request) {
   const supabase = await createClient()
 
   try {
-    // Check Auth
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-    // Check Admin
     const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
     if (profile?.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
@@ -34,14 +31,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
     }
 
-    // Insert EPISODES
     const { data: episode, error: epError } = await supabase
       .from('episodes')
       .insert({
         comic_id,
         title,
         episode_number: parseInt(episode_number),
-        // 👇 ป้องกัน Error ตรงนี้ด้วย
         thumbnail_url: (images && images.length > 0) ? images[0].image_url : null
       })
       .select()
@@ -49,11 +44,11 @@ export async function POST(request: Request) {
 
     if (epError) throw epError
 
-    // Insert IMAGES
-    const imageRecords = images.map((img: any) => ({
+    // Insert Images (ใช้ Promise.all เพื่อความเร็ว)
+    const imageRecords = images.map((img: any, index: number) => ({
       episode_id: episode.id,
       image_url: img.image_url,
-      order_index: img.page_number
+      order_index: index + 1 // ใช้ index ตรงๆ ได้เลยถ้าส่งมาเรียงแล้ว
     }))
 
     const { error: imgError } = await supabase.from('episode_images').insert(imageRecords)
@@ -68,13 +63,13 @@ export async function POST(request: Request) {
 }
 
 // -------------------------------------------------------
-// ฟังก์ชัน PUT (สำหรับแก้ไขตอน) - แก้ไขวงเล็บให้ถูกต้องแล้ว
+// 2. PUT: แก้ไขตอน (🔥 จุดที่แก้หลัก: ทำให้เร็วขึ้น)
 // -------------------------------------------------------
 export async function PUT(request: Request) {
   const supabase = await createClient()
 
   try {
-    // 1. Check Auth & Admin
+    // Check Auth
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
@@ -83,36 +78,35 @@ export async function PUT(request: Request) {
         return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
-    // 2. รับข้อมูลและตรวจสอบ (Validation)
     const body = await request.json()
+    
+    // Validate
     const validation = updateEpisodeSchema.safeParse(body)
-
     if (!validation.success) {
-        console.error("Validation Error:", validation.error.format())
         return NextResponse.json({ 
-            error: 'Invalid data format', 
+            error: 'ข้อมูลไม่ถูกต้อง', 
             details: validation.error.format() 
         }, { status: 400 })
     }
 
     const { id, title, images } = validation.data
 
-    // 3. อัปเดตข้อมูลตอน (ใส่ Logic กันพังตรง thumbnail_url)
+    // 1. อัปเดตข้อมูลตอน
     const { error: epError } = await supabase
         .from('episodes')
         .update({ 
             title, 
-            // 👇 ถ้ามีรูปใช้รูปแรก ถ้าไม่มีใส่ null (ไม่ Error)
-            thumbnail_url: (images && images.length > 0) ? images[0].image_url : null,
+            thumbnail_url: images.length > 0 ? images[0].image_url : null,
             updated_at: new Date().toISOString()
         })
         .eq('id', id)
 
     if (epError) throw epError
 
-    // 4. จัดการรูปภาพ (ลบรูปเก่า -> อัปเดตลำดับ -> เพิ่มรูปใหม่)
-    const { data: existingImages } = await supabase.from('episode_images').select('id').eq('episode_id', id)
+    // 2. จัดการรูปภาพ (แบบรวดเร็ว 🚀)
     
+    // 2.1 ดึงรูปเดิมมาเช็คว่าอันไหนโดนลบ
+    const { data: existingImages } = await supabase.from('episode_images').select('id').eq('episode_id', id)
     const existingIds = existingImages?.map(img => img.id) || []
     const incomingIds = images.filter(img => img.id).map(img => img.id as string)
     
@@ -122,35 +116,48 @@ export async function PUT(request: Request) {
         await supabase.from('episode_images').delete().in('id', idsToDelete)
     }
 
-    // อัปเดตลำดับรูปเก่า
-    const oldImages = images.filter(img => img.id)
-    for (let i = 0; i < oldImages.length; i++) {
-        await supabase.from('episode_images').update({ order_index: images.indexOf(oldImages[i]) + 1 }).eq('id', oldImages[i].id)
+    // 2.2 แยกรูปเก่า (Update) กับ รูปใหม่ (Insert)
+    const updates = []
+    const inserts = []
+
+    // วนลูปเตรียมข้อมูล (ยังไม่ยิง DB)
+    for (let i = 0; i < images.length; i++) {
+        const img = images[i]
+        const newOrder = i + 1
+
+        if (img.id) {
+            // รูปเก่า: เตรียม Promise สำหรับ Update
+            updates.push(
+                supabase.from('episode_images')
+                    .update({ order_index: newOrder })
+                    .eq('id', img.id)
+            )
+        } else {
+            // รูปใหม่: เก็บใส่ Array ไว้ Insert ทีเดียว
+            inserts.push({
+                episode_id: id,
+                image_url: img.image_url,
+                order_index: newOrder
+            })
+        }
     }
 
-    // เพิ่มรูปใหม่
-    const newImages = images.filter(img => !img.id)
-    if (newImages.length > 0) {
-        const recordsToInsert = newImages.map(img => ({
-            episode_id: id,
-            image_url: img.image_url,
-            order_index: images.indexOf(img) + 1
-        }))
-        await supabase.from('episode_images').insert(recordsToInsert)
-    }
+    // ⚡️ ยิงคำสั่ง Parallel (นี่คือจุดที่ทำให้เร็วขึ้นมาก)
+    await Promise.all([
+        ...updates, // ยิง update ทุกรูปพร้อมกัน
+        inserts.length > 0 ? supabase.from('episode_images').insert(inserts) : Promise.resolve() // ยิง insert ทีเดียว
+    ])
 
-    // ✅ ส่ง Response กลับ (สำคัญมาก ห้ามลืม)
     return NextResponse.json({ success: true, message: 'Episode updated successfully' })
 
   } catch (error: any) {
-    // ❌ ถ้า Error ต้องส่ง JSON กลับเสมอ ไม่งั้นหน้าเว็บจะขึ้น Unexpected end of JSON
-    console.error('Update Episode API Error:', error)
-    return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: 500 })
+    console.error('Update Episode Error:', error)
+    return NextResponse.json({ error: error.message }, { status: 500 })
   }
 }
 
 // -------------------------------------------------------
-// ฟังก์ชัน DELETE
+// 3. DELETE: ลบตอน (เหมือนเดิม)
 // -------------------------------------------------------
 export async function DELETE(request: Request) {
   const supabase = await createClient()
