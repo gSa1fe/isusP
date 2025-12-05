@@ -9,9 +9,9 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { Badge } from "@/components/ui/badge" // เพิ่ม Badge
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
-import { ArrowLeft, Upload, Loader2, ImagePlus, X, Save, Check } from 'lucide-react'
+import { Badge } from "@/components/ui/badge"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { ArrowLeft, Loader2, ImagePlus, X, Save } from 'lucide-react'
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -21,7 +21,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 
-// รายชื่อหมวดหมู่ทั้งหมด
 const GENRES_LIST = [
   'แอ็คชั่น', 'โรแมนติก', 'แฟนตาซี', 'ดราม่า', 'ตลก', 
   'ระทึกขวัญ', 'ชีวิตประจำวัน', 'สยองขวัญ', 'ผจญภัย', 
@@ -36,7 +35,7 @@ export default function CreateComicPage() {
   // Data
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
-  const [selectedGenres, setSelectedGenres] = useState<string[]>([]) // 👈 เปลี่ยนเป็น Array
+  const [selectedGenres, setSelectedGenres] = useState<string[]>([])
   
   // Files
   const [coverFile, setCoverFile] = useState<File | null>(null)
@@ -58,7 +57,6 @@ export default function CreateComicPage() {
     }
   }
 
-  // ฟังก์ชันเลือก/ยกเลิกหมวดหมู่
   const toggleGenre = (genre: string) => {
     setSelectedGenres(prev => 
       prev.includes(genre) 
@@ -67,9 +65,17 @@ export default function CreateComicPage() {
     )
   }
 
+  // ✅ ฟังก์ชันช่วยตั้งชื่อไฟล์ให้ปลอดภัย (ภาษาอังกฤษ + ตัวเลข เท่านั้น)
+  const sanitizeFilename = (originalName: string) => {
+    const ext = originalName.split('.').pop()
+    const randomString = Math.random().toString(36).substring(2, 10)
+    const timestamp = Date.now()
+    return `${timestamp}_${randomString}.${ext}`
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!title || selectedGenres.length === 0 || !coverFile) {
+    if (!title.trim() || selectedGenres.length === 0 || !coverFile) {
       alert("กรุณากรอกข้อมูลให้ครบ (ชื่อ, หมวดหมู่, รูปปก)")
       return
     }
@@ -77,16 +83,30 @@ export default function CreateComicPage() {
     setLoading(true)
 
     try {
-      // 1. Upload Cover
-      const coverPath = `covers/${Date.now()}_cover_${coverFile.name}`
-      await supabase.storage.from('comic-images').upload(coverPath, coverFile)
+      // 1. Upload Cover (ใช้ชื่อไฟล์ปลอดภัย)
+      const coverName = sanitizeFilename(coverFile.name)
+      const coverPath = `covers/${coverName}`
+      
+      const { error: coverError } = await supabase.storage
+        .from('comic-images')
+        .upload(coverPath, coverFile)
+      
+      if (coverError) throw new Error('Upload Cover Failed: ' + coverError.message)
+      
       const { data: coverUrlData } = supabase.storage.from('comic-images').getPublicUrl(coverPath)
 
-      // 2. Upload Banner
+      // 2. Upload Banner (ถ้ามี)
       let bannerUrl = null
       if (bannerFile) {
-        const bannerPath = `banners/${Date.now()}_banner_${bannerFile.name}`
-        await supabase.storage.from('comic-images').upload(bannerPath, bannerFile)
+        const bannerName = sanitizeFilename(bannerFile.name)
+        const bannerPath = `banners/${bannerName}`
+        
+        const { error: bannerError } = await supabase.storage
+            .from('comic-images')
+            .upload(bannerPath, bannerFile)
+
+        if (bannerError) throw new Error('Upload Banner Failed: ' + bannerError.message)
+
         const { data: bannerUrlData } = supabase.storage.from('comic-images').getPublicUrl(bannerPath)
         bannerUrl = bannerUrlData.publicUrl
       }
@@ -96,16 +116,24 @@ export default function CreateComicPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          title,
-          description,
-          genre: selectedGenres, // 👈 ส่งเป็น Array ไปเลย
+          title: title.trim(), // ✅ ตัดช่องว่างหน้าหลังออก
+          description: description.trim(), // ✅ ตัดช่องว่างหน้าหลังออก
+          genre: selectedGenres,
           cover_image_url: coverUrlData.publicUrl,
           banner_image_url: bannerUrl,
           is_published: true
         })
       })
 
-      if (!res.ok) throw new Error('API Error')
+      const data = await res.json()
+
+      if (!res.ok) {
+        // ❌ ดักจับ Error จาก API (เช่น Zod Validation) มาแสดง
+        const errorMessage = typeof data.error === 'object' 
+            ? JSON.stringify(data.details || data.error) 
+            : data.error
+        throw new Error(errorMessage)
+      }
 
       alert("✅ เพิ่มการ์ตูนสำเร็จ!")
       router.push('/admin/comics')
@@ -175,7 +203,6 @@ export default function CreateComicPage() {
                 <Input value={title} onChange={(e) => setTitle(e.target.value)} className="bg-black/20 border-white/10 text-white" required />
               </div>
 
-              {/* 👇 ส่วนเลือกหมวดหมู่แบบ Multi-Select */}
               <div className="space-y-2">
                 <Label className="text-gray-300">หมวดหมู่ <span className="text-red-500">*</span></Label>
                 <DropdownMenu>
@@ -202,7 +229,6 @@ export default function CreateComicPage() {
                   </DropdownMenuContent>
                 </DropdownMenu>
                 
-                {/* แสดง Badges ของหมวดหมู่ที่เลือก */}
                 <div className="flex flex-wrap gap-2 mt-3">
                   {selectedGenres.map(g => (
                     <Badge key={g} variant="secondary" className="bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20 cursor-pointer" onClick={() => toggleGenre(g)}>
