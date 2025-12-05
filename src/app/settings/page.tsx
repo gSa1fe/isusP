@@ -12,6 +12,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Loader2, Save, LogOut, Camera, User, Lock, Pen, UserPen, Mail } from 'lucide-react'
 
+
 export default function SettingsPage() {
   const router = useRouter()
   
@@ -31,6 +32,7 @@ export default function SettingsPage() {
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null)
   
   // Password
+  const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
 
@@ -108,7 +110,13 @@ export default function SettingsPage() {
       })
 
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error)
+      if (!res.ok) {
+    // ถ้า error เป็น object (จาก Zod) ให้ดึงข้อความข้างในออกมา
+    const errorMessage = typeof data.error === 'object' 
+        ? JSON.stringify(data.error) // หรือจะเจาะจง field เช่น data.error.username?._errors[0]
+        : data.error
+    throw new Error(errorMessage)
+}
 
       setMsg({ type: 'success', text: 'บันทึกข้อมูลเรียบร้อยแล้ว!' })
       
@@ -124,12 +132,22 @@ export default function SettingsPage() {
   }
 
   // 3. Update Password
-  const handleUpdatePassword = async (e: React.FormEvent) => {
+const handleUpdatePassword = async (e: React.FormEvent) => {
     e.preventDefault()
     setMsg(null)
     
+    if (!currentPassword) {
+        setMsg({ type: 'error', text: 'กรุณากรอกรหัสผ่านเดิม' })
+        return
+    }
+
     if (newPassword !== confirmPassword) {
-        setMsg({ type: 'error', text: 'รหัสผ่านไม่ตรงกัน' })
+        setMsg({ type: 'error', text: 'รหัสผ่านใหม่ไม่ตรงกัน' })
+        return
+    }
+
+    if (newPassword.length < 6) {
+        setMsg({ type: 'error', text: 'รหัสผ่านใหม่ต้องมีอย่างน้อย 6 ตัวอักษร' })
         return
     }
 
@@ -141,6 +159,7 @@ export default function SettingsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           type: 'password',
+          currentPassword, // 👈 ส่งรหัสเดิมไปด้วย
           password: newPassword 
         }),
       })
@@ -321,6 +340,18 @@ export default function SettingsPage() {
               </CardHeader>
               <form onSubmit={handleUpdatePassword}>
                 <CardContent className="space-y-4">
+
+                  <div className="space-y-2">
+                    <Label className="text-gray-300">รหัสผ่านปัจจุบัน <span className="text-red-500">*</span></Label>
+                    <Input 
+                        type="password" 
+                        className="bg-black/20 border-white/10 text-white focus-visible:ring-primary" 
+                        value={currentPassword} 
+                        onChange={(e) => setCurrentPassword(e.target.value)} 
+                        required
+                    />
+                  </div>
+                  
                   <div className="space-y-2">
                     <Label className="text-gray-300">รหัสผ่านใหม่</Label>
                     <Input 

@@ -13,42 +13,33 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  try {
+try {
     const { title, message, link } = await request.json()
+    // ... validation ...
 
-    if (!title || !message) {
-        return NextResponse.json({ error: 'Missing title or message' }, { status: 400 })
+    // 1. ดึง User ทั้งหมด
+    const { data: users } = await supabase.from('profiles').select('id')
+    if (!users?.length) return NextResponse.json({ message: 'No users' })
+
+    // 2. แบ่งทำทีละ 100 คน (Batch) เพื่อไม่ให้ Database สำลัก
+    const BATCH_SIZE = 100
+    for (let i = 0; i < users.length; i += BATCH_SIZE) {
+        const batch = users.slice(i, i + BATCH_SIZE).map(u => ({
+            user_id: u.id,
+            type: 'system',
+            title,
+            message,
+            link: link || null,
+            is_read: false
+        }))
+
+        const { error } = await supabase.from('notifications').insert(batch)
+        if (error) console.error('Batch error:', error)
     }
 
-    // 2. ดึง ID ของ User ทั้งหมดจากตาราง profiles
-    // (เลือกเฉพาะ id เพื่อความเบา)
-    const { data: users, error: usersError } = await supabase
-        .from('profiles')
-        .select('id')
-    
-    if (usersError) throw usersError
-    if (!users || users.length === 0) return NextResponse.json({ message: 'No users to notify' })
+    return NextResponse.json({ message: `Process complete for ${users.length} users` })
 
-    // 3. เตรียมข้อมูลสำหรับ Insert ทีเดียว (Batch Insert)
-    const notifications = users.map((u) => ({
-        user_id: u.id,
-        type: 'system', // ประเภท: ประกาศจากระบบ
-        title,
-        message,
-        link: link || null,
-        is_read: false
-    }))
-
-    // 4. บันทึกลง Database
-    const { error: insertError } = await supabase
-        .from('notifications')
-        .insert(notifications)
-
-    if (insertError) throw insertError
-
-    return NextResponse.json({ message: `Sent to ${users.length} users` })
-
-  } catch (error: any) {
+} catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 }
