@@ -128,7 +128,7 @@ export default function CommentSection({ episodeId, comicId }: CommentSectionPro
   }
 
   return (
-    <div className="w-full bg-[#131720] p-6 rounded-xl border border-white/5">
+    <div className="w-full bg-[#131720] p-6 rounded-xl">
       <div className="flex items-center gap-2 mb-6 text-white">
         <MessageSquare className="w-5 h-5 text-primary" />
         <h3 className="font-bold text-lg">ความคิดเห็น</h3>

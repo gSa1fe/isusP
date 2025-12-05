@@ -1,27 +1,42 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase-server'
 
-// 1. GET: ดึงรายการแจ้งเตือนของฉัน
+// 1. GET: ดึงรายการแจ้งเตือนของฉัน (พร้อมจำนวนที่ยังไม่อ่านที่ถูกต้อง)
 export async function GET(request: Request) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   
-  if (!user) return NextResponse.json({ notifications: [], count: 0 })
+  if (!user) return NextResponse.json({ notifications: [], unreadCount: 0 })
 
-  // ดึงข้อมูล (เอาเฉพาะที่ยังไม่อ่าน หรืออ่านแล้วแต่ไม่เก่ามากก็ได้)
-  const { data, error } = await supabase
-    .from('notifications')
-    .select('*')
-    .eq('user_id', user.id)
-    .order('created_at', { ascending: false })
-    .limit(20) // ดึงมาแค่ 20 อันล่าสุด
+  try {
+    // A. Query ดึงข้อมูลมาแสดง (Limit 20)
+    const notificationsQuery = supabase
+        .from('notifications')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(20)
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    // B. Query นับจำนวนที่ยังไม่อ่าน (Count ทั้งหมด ไม่สน limit)
+    const unreadCountQuery = supabase
+        .from('notifications')
+        .select('*', { count: 'exact', head: true }) // head: true คือเอาแค่จำนวน ไม่เอาข้อมูล
+        .eq('user_id', user.id)
+        .eq('is_read', false)
 
-  // นับจำนวนที่ยังไม่อ่าน
-  const unreadCount = data?.filter(n => !n.is_read).length || 0
+    // ยิงพร้อมกันเพื่อความเร็ว
+    const [notifRes, unreadRes] = await Promise.all([notificationsQuery, unreadCountQuery])
 
-  return NextResponse.json({ notifications: data, unreadCount })
+    if (notifRes.error) throw notifRes.error
+    
+    return NextResponse.json({ 
+        notifications: notifRes.data || [], 
+        unreadCount: unreadRes.count || 0 // ได้ค่าจริงที่ถูกต้อง
+    })
+
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
 }
 
 // 2. PATCH: กด "อ่านแล้ว"

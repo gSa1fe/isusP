@@ -12,47 +12,37 @@ export async function GET(request: Request) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   try {
-    // 2. ดึงข้อมูลประวัติ (ดึงมาเผื่อเยอะหน่อย เช่น 50 รายการ เพื่อมาคัดกรอง)
+    // 2. ดึงข้อมูลจาก View ที่เราสร้างไว้ (มันกรองตัวซ้ำให้เสร็จสรรพแล้ว)
     const { data, error } = await supabase
-      .from('reading_history')
-      .select(`
-        updated_at,
-        episode_id,
-        episodes!inner (
-          episode_number,
-          title,
-          comics!inner (
-            id,
-            title,
-            cover_image_url,
-            genre
-          )
-        )
-      `)
+      .from('distinct_reading_history')
+      .select('*')
       .eq('user_id', user.id)
       .order('updated_at', { ascending: false })
-      .limit(50) // ดึงมา 50 รายการล่าสุดมาคัดกรอง
+      .limit(20) // ดึงมาแค่ 20 เรื่องล่าสุดพอ (เพิ่มได้ตามต้องการ)
 
     if (error) throw error
 
-    // 3. 🟢 กรองข้อมูลซ้ำ (Group by Comic ID) ที่ Server เลย
-    const uniqueHistoryMap = new Map()
-    
-    data.forEach((item: any) => {
-        // เช็คความปลอดภัยของข้อมูลก่อน
-        const comic = item.episodes?.comics
-        if (!comic) return
-
-        // ถ้ายังไม่มีเรื่องนี้ในรายการ ให้ใส่เข้าไป (เพราะเราเรียง updated_at มากสุดไว้อยู่แล้ว อันแรกที่เจอคือล่าสุดเสมอ)
-        if (!uniqueHistoryMap.has(comic.id)) {
-            uniqueHistoryMap.set(comic.id, item)
+    // 3. แปลงโครงสร้างข้อมูลให้ตรงกับที่หน้า Frontend (HistoryPage) คาดหวัง
+    // Frontend เดิมรอรับ: { episodes: { comics: { ... } } }
+    // แต่ View เราส่งมาแบบแบนๆ (flat) เลยต้อง map ให้โครงสร้างเหมือนเดิม
+    const formattedHistory = data?.map((item: any) => ({
+      id: `${item.user_id}_${item.episode_id}`, // สร้าง unique key จำลอง
+      updated_at: item.updated_at,
+      episode_id: item.episode_id,
+      episodes: {
+        episode_number: item.episode_number,
+        title: item.episode_title,
+        comics: {
+          id: item.comic_id,
+          title: item.comic_title,
+          cover_image_url: item.cover_image_url,
+          genre: item.genre,
+          status: item.status
         }
-    })
+      }
+    })) || []
 
-    // แปลงกลับเป็น Array เพื่อส่งกลับไป
-    const uniqueHistory = Array.from(uniqueHistoryMap.values())
-
-    return NextResponse.json({ history: uniqueHistory })
+    return NextResponse.json({ history: formattedHistory })
 
   } catch (error: any) {
     console.error("History API Error:", error.message)

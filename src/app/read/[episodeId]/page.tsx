@@ -196,7 +196,7 @@ export default function ReaderPage() {
           <EpisodeLikeButton episodeId={episodeId as string} />
         </div>
 
-        <div className="bg-[#131720] pb-8" onClick={(e) => e.stopPropagation()}>
+        <div className="bg-[#131720] pb-8 rounded-xl" onClick={(e) => e.stopPropagation()}>
           <CommentSection episodeId={episodeId as string} />
         </div>
       </div>

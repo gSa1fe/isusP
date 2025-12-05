@@ -4,8 +4,8 @@ import { z } from 'zod'
 
 // 1. Schema สำหรับตรวจสอบคอมเมนต์
 const commentSchema = z.object({
-  comic_id: z.string().uuid().optional(), // อาจจะเม้นในเรื่อง
-  episode_id: z.string().uuid().optional(), // หรือเม้นในตอน
+  comic_id: z.string().uuid().optional(),
+  episode_id: z.string().uuid().optional(),
   content: z.string()
     .min(1, { message: "กรุณาพิมพ์ข้อความ" })
     .max(500, { message: "คอมเมนต์ยาวเกินไป (สูงสุด 500 ตัวอักษร)" })
@@ -15,7 +15,7 @@ const commentSchema = z.object({
 })
 
 // =======================================================
-// 🟢 GET: ดึงคอมเมนต์ (แบบ Pagination)
+// 🟢 GET: ดึงคอมเมนต์ (แบบ Optimized Pagination ⚡)
 // =======================================================
 export async function GET(request: Request) {
   const supabase = await createClient()
@@ -26,31 +26,37 @@ export async function GET(request: Request) {
   
   // Pagination Params
   const page = parseInt(searchParams.get('page') || '1')
-  const limit = parseInt(searchParams.get('limit') || '10') // โหลดทีละ 10
+  const limit = parseInt(searchParams.get('limit') || '10') 
   const offset = (page - 1) * limit
 
   try {
     let query = supabase
       .from('comments')
-      .select('*, profiles(username, avatar_url)', { count: 'exact' }) // ดึง profile คนเม้นด้วย
-      .order('created_at', { ascending: false }) // ใหม่สุดขึ้นก่อน
-      .range(offset, offset + limit - 1) //ตัดมาเฉพาะหน้าปัจจุบัน
+      .select('*, profiles(username, avatar_url)') // ❌ ไม่ใช้ { count: 'exact' } แล้ว เพื่อความเร็ว
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit) // ✅ ดึงมาเกิน 1 ตัว (Limit + 1) เพื่อเช็คว่ามีหน้าถัดไปไหม
 
     if (comic_id) query = query.eq('comic_id', comic_id)
     if (episode_id) query = query.eq('episode_id', episode_id)
 
-    const { data, error, count } = await query
+    const { data, error } = await query
 
     if (error) throw error
 
-    // ส่งข้อมูลกลับพร้อมบอกว่ามีกี่หน้า
+    // ✅ Logic เช็คหน้าถัดไป (Pagination)
+    // ถ้าดึงมาได้มากกว่า limit แสดงว่ายังมีข้อมูลเหลือ (hasMore = true)
+    const hasMore = (data?.length || 0) > limit
+    
+    // ตัดตัวที่เกินออกก่อนส่งกลับ
+    const comments = hasMore ? data?.slice(0, limit) : data
+
     return NextResponse.json({
-      data,
+      data: comments,
       meta: {
-        total: count,
+        // total: 0, // เราไม่ส่ง total แล้ว เพราะไม่ได้นับ (เร็วกว่ามาก)
         page,
         limit,
-        hasMore: (offset + limit) < (count || 0)
+        hasMore
       }
     })
 
@@ -60,7 +66,7 @@ export async function GET(request: Request) {
 }
 
 // =======================================================
-// 🔵 POST: เพิ่มคอมเมนต์ใหม่ (พร้อม Rate Limit อ่อนๆ)
+// 🔵 POST: เพิ่มคอมเมนต์ใหม่
 // =======================================================
 export async function POST(request: Request) {
   const supabase = await createClient()
@@ -83,7 +89,7 @@ export async function POST(request: Request) {
 
     const { content, comic_id, episode_id } = validation.data
 
-    // 3. Rate Limit (กันสแปม) - เช็คคอมเมนต์ล่าสุดของ user นี้
+    // 3. Rate Limit (กันสแปม)
     const { data: lastComment } = await supabase
         .from('comments')
         .select('created_at')
@@ -95,8 +101,7 @@ export async function POST(request: Request) {
     if (lastComment) {
         const lastTime = new Date(lastComment.created_at).getTime()
         const now = new Date().getTime()
-        // ถ้าเม้นห่างกันไม่ถึง 10 วินาที ให้บล็อก
-        if (now - lastTime < 10 * 1000) {
+        if (now - lastTime < 10 * 1000) { // 10 วินาที
             return NextResponse.json({ error: 'คุณคอมเมนต์เร็วเกินไป กรุณารอสักครู่' }, { status: 429 })
         }
     }
@@ -106,11 +111,11 @@ export async function POST(request: Request) {
       .from('comments')
       .insert({
         user_id: user.id,
-        content, // Supabase จะจัดการ escape string ให้เอง ป้องกัน SQL Injection
+        content,
         comic_id,
         episode_id
       })
-      .select('*, profiles(username, avatar_url)') // return ข้อมูลกลับไปแสดงผลเลย
+      .select('*, profiles(username, avatar_url)')
       .single()
 
     if (error) throw error
@@ -118,13 +123,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ message: 'Comment success', data })
 
   } catch (error: any) {
-    console.error('Comment Error:', error)
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 }
 
 // =======================================================
-// 🔴 DELETE: ลบคอมเมนต์ (เจ้าของ หรือ แอดมิน)
+// 🔴 DELETE: ลบคอมเมนต์
 // =======================================================
 export async function DELETE(request: Request) {
     const supabase = await createClient()
@@ -135,7 +139,7 @@ export async function DELETE(request: Request) {
         const { data: { user } } = await supabase.auth.getUser()
         if (!user || !id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-        // เช็คก่อนว่าใครเป็นคนลบ (เจ้าของเม้น หรือ แอดมิน)
+        // เช็คสิทธิ์ (เจ้าของ หรือ Admin)
         const { data: comment } = await supabase.from('comments').select('user_id').eq('id', id).single()
         const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
 
@@ -146,7 +150,6 @@ export async function DELETE(request: Request) {
             return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
         }
 
-        // ลบ
         const { error } = await supabase.from('comments').delete().eq('id', id)
         if (error) throw error
 
