@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { Heart, Loader2 } from 'lucide-react'
 import { Button } from "@/components/ui/button"
 import { supabase } from '@/lib/supabase'
+import { toast } from "sonner"
 
 export default function EpisodeLikeButton({ episodeId }: { episodeId: string }) {
   const [likes, setLikes] = useState(0)
@@ -30,7 +31,7 @@ export default function EpisodeLikeButton({ episodeId }: { episodeId: string }) 
     // เช็ค Login ฝั่ง Client
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) {
-        alert('กรุณาเข้าสู่ระบบเพื่อกดถูกใจ')
+        toast.error('กรุณาเข้าสู่ระบบเพื่อกดถูกใจ')
         return
     }
 
@@ -64,7 +65,7 @@ export default function EpisodeLikeButton({ episodeId }: { episodeId: string }) 
         // ถ้าพัง ให้ย้อนค่ากลับ
         setIsLiked(previousLiked)
         setLikes(previousLikes)
-        alert('เกิดข้อผิดพลาด กรุณาลองใหม่')
+        toast.error('เกิดข้อผิดพลาด กรุณาลองใหม่')
     } finally {
         setProcessing(false)
     }

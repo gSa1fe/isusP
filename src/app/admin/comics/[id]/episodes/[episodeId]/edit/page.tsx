@@ -11,6 +11,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Loader2, Save, ArrowLeft, X, GripVertical, UploadCloud } from 'lucide-react'
 import { useDropzone } from 'react-dropzone'
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd'
+import { toast } from "sonner"
 
 // Interface สำหรับเก็บข้อมูลรูปภาพใน State
 interface ImageItem {
@@ -47,7 +48,7 @@ export default function EditEpisodePage() {
         .single()
       
       if (epError) {
-        alert('Error fetching episode: ' + epError.message)
+        toast.error('Error fetching episode: ' + epError.message)
         router.back()
         return
       }
@@ -63,7 +64,7 @@ export default function EditEpisodePage() {
         .order('order_index', { ascending: true })
       
       if (imgError) {
-        alert('Error fetching images: ' + imgError.message)
+        toast.error('Error fetching images: ' + imgError.message)
       } else {
         // เซตลง state (รูปเดิมจะมี id ติดมาด้วย)
         setImageList(imgData || [])
@@ -112,7 +113,7 @@ export default function EditEpisodePage() {
 
   // 5. ฟังก์ชันบันทึกข้อมูล (Upload -> Call API)
   const handleSave = async () => {
-    if (!title || imageList.length === 0) return alert('กรุณากรอกชื่อตอนและต้องมีรูปภาพอย่างน้อย 1 รูป')
+    if (!title || imageList.length === 0) return toast.error('กรุณากรอกชื่อตอนและต้องมีรูปภาพอย่างน้อย 1 รูป')
     setSaving(true)
 
     try {
@@ -155,12 +156,12 @@ export default function EditEpisodePage() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
 
-      alert('บันทึกการแก้ไขเรียบร้อยแล้ว!')
+      toast.success('บันทึกการแก้ไขเรียบร้อยแล้ว!')
       router.back() // กลับไปหน้ารายการตอน
 
     } catch (error: any) {
       console.error(error)
-      alert('เกิดข้อผิดพลาด: ' + error.message)
+      toast.error('เกิดข้อผิดพลาด: ' + error.message)
     } finally {
       setSaving(false)
     }

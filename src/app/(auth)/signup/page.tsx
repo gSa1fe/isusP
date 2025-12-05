@@ -8,15 +8,13 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Loader2 } from 'lucide-react'
+import { toast } from "sonner" // ✅ Import
 
 export default function SignUpPage() {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   
-  // State สำหรับเก็บข้อมูลฟอร์ม
   const [formData, setFormData] = useState({
     username: '',
     email: '',
@@ -24,13 +22,12 @@ export default function SignUpPage() {
   })
 
   const handleSignUp = async (e: React.FormEvent) => {
-  e.preventDefault()
-  setLoading(true)
-  setError(null)
+    e.preventDefault()
+    setLoading(true)
 
-  try {
+    try {
     // -----------------------------
-    // ✅ 1) เช็ค username ซ้ำก่อนสมัคร
+    // :white_check_mark: 1) เช็ค username ซ้ำก่อนสมัคร
     // -----------------------------
     const { data: existingUser, error: userCheckError } = await supabase
       .from('profiles')
@@ -43,7 +40,7 @@ export default function SignUpPage() {
     }
 
     // -----------------------------
-    // ✅ 2) พยายามสมัครสมาชิก
+    // :white_check_mark: 2) พยายามสมัครสมาชิก
     // -----------------------------
     const { data, error: signUpError } = await supabase.auth.signUp({
       email: formData.email,
@@ -57,7 +54,7 @@ export default function SignUpPage() {
     })
 
     // -----------------------------
-    // ✅ 3) เช็คอีเมลซ้ำ
+    // :white_check_mark: 3) เช็คอีเมลซ้ำ
     // -----------------------------
     if (signUpError) {
       if (signUpError.message.includes("registered")) {
@@ -67,7 +64,7 @@ export default function SignUpPage() {
     }
 
     // -----------------------------
-    // ✅ 4) สมัครสำเร็จ
+    // :white_check_mark: 4) สมัครสำเร็จ
     // -----------------------------
     if (data.session) {
       router.push('/')
@@ -77,12 +74,11 @@ export default function SignUpPage() {
     }
 
   } catch (err: any) {
-    setError(err.message || "เกิดข้อผิดพลาดในการสมัครสมาชิก")
+    toast.error("เกิดข้อผิดพลาด", { description: err.message })
   } finally {
     setLoading(false)
   }
 }
-
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background px-4">
@@ -96,12 +92,6 @@ export default function SignUpPage() {
         <form onSubmit={handleSignUp}>
           <CardContent className="space-y-4">
             
-            {error && (
-              <Alert variant="destructive" className="bg-destructive/10 text-destructive border-destructive/20">
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
-            )}
-
             <div className="space-y-2">
               <Label htmlFor="username">Username</Label>
               <Input 

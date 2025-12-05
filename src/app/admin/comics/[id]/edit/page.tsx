@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Switch } from "@/components/ui/switch"
 import { Badge } from "@/components/ui/badge"
 import { Loader2, Save, ImagePlus, ArrowLeft, X } from 'lucide-react'
+import { toast } from "sonner"
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -131,12 +132,12 @@ export default function EditComicPage() {
 
       if (!res.ok) throw new Error('Update failed')
 
-      alert('✅ แก้ไขข้อมูลเรียบร้อย!')
+      toast.success('✅ แก้ไขข้อมูลเรียบร้อย!')
       router.push('/admin/comics')
       router.refresh()
 
     } catch (error: any) {
-      alert('Error: ' + error.message)
+      toast.error('Error: ' + error.message)
     } finally {
       setLoading(false)
     }

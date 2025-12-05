@@ -20,6 +20,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { toast } from "sonner"
 
 const GENRES_LIST = [
   'แอ็คชั่น', 'โรแมนติก', 'แฟนตาซี', 'ดราม่า', 'ตลก', 
@@ -76,7 +77,7 @@ export default function CreateComicPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!title.trim() || selectedGenres.length === 0 || !coverFile) {
-      alert("กรุณากรอกข้อมูลให้ครบ (ชื่อ, หมวดหมู่, รูปปก)")
+      toast.error("กรุณากรอกข้อมูลให้ครบ (ชื่อ, หมวดหมู่, รูปปก)")
       return
     }
 
@@ -135,12 +136,12 @@ export default function CreateComicPage() {
         throw new Error(errorMessage)
       }
 
-      alert("✅ เพิ่มการ์ตูนสำเร็จ!")
+      toast.success("✅ เพิ่มการ์ตูนสำเร็จ!")
       router.push('/admin/comics')
 
     } catch (error: any) {
       console.error(error)
-      alert('เกิดข้อผิดพลาด: ' + error.message)
+      toast.error('เกิดข้อผิดพลาด: ' + error.message)
     } finally {
       setLoading(false)
     }

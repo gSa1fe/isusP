@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Loader2, Send, Megaphone } from 'lucide-react'
+import { toast } from "sonner"
 
 export default function AnnouncePage() {
   const [loading, setLoading] = useState(false)
@@ -31,14 +32,14 @@ export default function AnnouncePage() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
 
-      alert(`✅ ส่งประกาศสำเร็จ! (${data.message})`)
+      toast.success(`✅ ส่งประกาศสำเร็จ! (${data.message})`)
       // เคลียร์ฟอร์ม
       setTitle('')
       setMessage('')
       setLink('')
 
     } catch (error: any) {
-      alert('เกิดข้อผิดพลาด: ' + error.message)
+      toast.error('เกิดข้อผิดพลาด: ' + error.message)
     } finally {
       setLoading(false)
     }

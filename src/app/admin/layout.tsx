@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { LayoutDashboard, BookOpen, PlusCircle, LogOut, Settings, ShieldAlert, Megaphone } from 'lucide-react'
+import { toast } from "sonner"
 
 export default function AdminLayout({
   children,
@@ -36,7 +37,7 @@ export default function AdminLayout({
 
       if (profile?.role !== 'admin') {
         // ถ้าไม่ใช่ Admin ให้เตะออก
-        alert('⛔ พื้นที่หวงห้าม! สำหรับ Admin เท่านั้น')
+        toast.error('พื้นที่หวงห้าม! สำหรับ Admin เท่านั้น')
         router.push('/')
       } else {
         setIsAdmin(true)

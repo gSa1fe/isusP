@@ -11,6 +11,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Play, List, Clock, Eye, Share2, Heart, BookOpen, Bookmark, Check, CheckCircle2, Star, Sparkles } from 'lucide-react'
 import RatingSystem from '@/components/RatingSystem'
 import CommentSection from '@/components/CommentSection'
+import { toast } from "sonner"
 
 export default function ComicDetail() {
     const { id } = useParams()
@@ -83,7 +84,7 @@ export default function ComicDetail() {
 
     const toggleLibrary = async () => {
         const { data: { user } } = await supabase.auth.getUser()
-        if (!user) { alert('กรุณาเข้าสู่ระบบ'); return }
+        if (!user) { toast.error('กรุณาเข้าสู่ระบบ'); return }
 
         setLibraryLoading(true)
         try {
@@ -101,7 +102,7 @@ export default function ComicDetail() {
                 if (res.ok) setInLibrary(true)
             }
         } catch (error) {
-            alert('เกิดข้อผิดพลาดในการบันทึก')
+            toast.error('เกิดข้อผิดพลาดในการบันทึก')
         } finally {
             setLibraryLoading(false)
         }

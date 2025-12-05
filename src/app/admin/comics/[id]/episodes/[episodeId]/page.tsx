@@ -8,6 +8,7 @@ import { supabase } from '@/lib/supabase'
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ArrowLeft, Trash2, Plus, Loader2, Save, ImagePlus } from 'lucide-react'
+import { toast } from "sonner"
 
 export default function ManageEpisodeImagesPage() {
   const { id: comicId, episodeId } = useParams()
@@ -99,11 +100,11 @@ export default function ManageEpisodeImagesPage() {
 
       if (!res.ok) throw new Error('API Failed')
 
-      alert('✅ เพิ่มรูปสำเร็จ!')
+      toast.success('✅ เพิ่มรูปสำเร็จ!')
       fetchData() // โหลดข้อมูลใหม่ทันที
 
     } catch (error: any) {
-      alert('Error: ' + error.message)
+      toast.error('Error: ' + error.message)
     } finally {
       setUploading(false)
       setProgress('')
@@ -129,7 +130,7 @@ export default function ManageEpisodeImagesPage() {
       setImages(images.filter(img => img.id !== imgId))
 
     } catch (error) {
-      alert('ลบไม่สำเร็จ')
+      toast.error('ลบไม่สำเร็จ')
     }
   }
 

@@ -9,9 +9,8 @@ import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Loader2, Save, LogOut, Camera, User, Lock, Pen, UserPen, Mail } from 'lucide-react'
-
+import { Loader2, User, Lock, Pen, UserPen, Mail, Camera } from 'lucide-react'
+import { toast } from "sonner" // ✅ Import
 
 export default function SettingsPage() {
   const router = useRouter()
@@ -23,8 +22,8 @@ export default function SettingsPage() {
 
   // Data
   const [username, setUsername] = useState('')
-  const [email, setEmail] = useState('') // อีเมลปัจจุบัน
-  const [newEmail, setNewEmail] = useState('') // อีเมลใหม่ที่จะเปลี่ยน
+  const [email, setEmail] = useState('') 
+  const [newEmail, setNewEmail] = useState('') 
   const [avatarUrl, setAvatarUrl] = useState('')
   
   // File Upload
@@ -36,8 +35,6 @@ export default function SettingsPage() {
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
 
-  const [msg, setMsg] = useState<{ type: 'success' | 'error', text: string } | null>(null)
-
   // 1. Init Data
   useEffect(() => {
     const initData = async () => {
@@ -47,7 +44,7 @@ export default function SettingsPage() {
         return
       }
       setEmail(user.email || '')
-      setNewEmail(user.email || '') // ตั้งค่าเริ่มต้นให้ input
+      setNewEmail(user.email || '')
 
       const { data: profile } = await supabase
         .from('profiles')
@@ -64,7 +61,6 @@ export default function SettingsPage() {
     initData()
   }, [router])
 
-  // ฟังก์ชันเลือกไฟล์
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
@@ -76,7 +72,6 @@ export default function SettingsPage() {
   // 2. Update Profile
   const handleUpdateProfile = async (e: React.FormEvent) => {
     e.preventDefault()
-    setMsg(null)
     setSavingProfile(true)
 
     try {
@@ -111,43 +106,37 @@ export default function SettingsPage() {
 
       const data = await res.json()
       if (!res.ok) {
-    // ถ้า error เป็น object (จาก Zod) ให้ดึงข้อความข้างในออกมา
-    const errorMessage = typeof data.error === 'object' 
-        ? JSON.stringify(data.error) // หรือจะเจาะจง field เช่น data.error.username?._errors[0]
-        : data.error
-    throw new Error(errorMessage)
-}
+        const errorMessage = typeof data.error === 'object' ? JSON.stringify(data.error) : data.error
+        throw new Error(errorMessage)
+      }
 
-      setMsg({ type: 'success', text: 'บันทึกข้อมูลเรียบร้อยแล้ว!' })
+      toast.success("บันทึกข้อมูลโปรไฟล์เรียบร้อย") // ✅
       
       setAvatarUrl(finalAvatarUrl)
       setAvatarFile(null)
       router.refresh()
 
     } catch (error: any) {
-      setMsg({ type: 'error', text: error.message })
+      toast.error("บันทึกไม่สำเร็จ", { description: error.message }) // ✅
     } finally {
       setSavingProfile(false)
     }
   }
 
   // 3. Update Password
-const handleUpdatePassword = async (e: React.FormEvent) => {
+  const handleUpdatePassword = async (e: React.FormEvent) => {
     e.preventDefault()
-    setMsg(null)
     
     if (!currentPassword) {
-        setMsg({ type: 'error', text: 'กรุณากรอกรหัสผ่านเดิม' })
+        toast.error("กรุณากรอกรหัสผ่านเดิม")
         return
     }
-
     if (newPassword !== confirmPassword) {
-        setMsg({ type: 'error', text: 'รหัสผ่านใหม่ไม่ตรงกัน' })
+        toast.error("รหัสผ่านใหม่ไม่ตรงกัน")
         return
     }
-
     if (newPassword.length < 6) {
-        setMsg({ type: 'error', text: 'รหัสผ่านใหม่ต้องมีอย่างน้อย 6 ตัวอักษร' })
+        toast.error("รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร")
         return
     }
 
@@ -159,7 +148,7 @@ const handleUpdatePassword = async (e: React.FormEvent) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           type: 'password',
-          currentPassword, // 👈 ส่งรหัสเดิมไปด้วย
+          currentPassword, 
           password: newPassword 
         }),
       })
@@ -167,22 +156,21 @@ const handleUpdatePassword = async (e: React.FormEvent) => {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
 
-      alert("✅ เปลี่ยนรหัสผ่านสำเร็จ! กรุณาเข้าสู่ระบบใหม่")
+      toast.success("เปลี่ยนรหัสผ่านสำเร็จ!", { description: "กรุณาเข้าสู่ระบบใหม่" }) // ✅
       await fetch('/api/auth/signout', { method: 'POST' })
       window.location.href = '/login'
 
     } catch (error: any) {
-      setMsg({ type: 'error', text: `เกิดข้อผิดพลาด: ${error.message}` })
+      toast.error("เปลี่ยนรหัสผ่านไม่สำเร็จ", { description: error.message }) // ✅
+    } finally {
       setSavingPassword(false)
     }
   }
 
-  // 4. Update Email (ฟังก์ชันใหม่)
+  // 4. Update Email
   const handleUpdateEmail = async (e: React.FormEvent) => {
     e.preventDefault()
-    setMsg(null)
-
-    if (newEmail === email) return // ไม่เปลี่ยนถ้าเหมือนเดิม
+    if (newEmail === email) return 
 
     setSavingEmail(true)
     try {
@@ -198,10 +186,10 @@ const handleUpdatePassword = async (e: React.FormEvent) => {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
 
-      alert("📧 ระบบได้ส่งลิงก์ยืนยันไปที่อีเมลใหม่ (และอีเมลเก่า) ของคุณแล้ว\nกรุณาตรวจสอบและกดยืนยันทั้ง 2 ฉบับเพื่อเปลี่ยนอีเมลให้สมบูรณ์")
+      toast.info("ตรวจสอบอีเมล", { description: "ระบบได้ส่งลิงก์ยืนยันไปที่อีเมลใหม่และเก่าของคุณแล้ว" }) // ✅
       
     } catch (error: any) {
-      setMsg({ type: 'error', text: `เกิดข้อผิดพลาด: ${error.message}` })
+      toast.error("เกิดข้อผิดพลาด", { description: error.message })
     } finally {
         setSavingEmail(false)
     }
@@ -218,11 +206,7 @@ const handleUpdatePassword = async (e: React.FormEvent) => {
             <p className="text-gray-400 mt-1">จัดการข้อมูลส่วนตัวและความปลอดภัยของคุณ</p>
         </div>
 
-        {msg && (
-          <Alert variant={msg.type === 'error' ? 'destructive' : 'default'} className={`mb-6 border ${msg.type === 'success' ? 'border-green-500/50 bg-green-500/10 text-green-400' : 'border-red-500/50 bg-red-500/10 text-red-400'}`}>
-            <AlertDescription>{msg.text}</AlertDescription>
-          </Alert>
-        )}
+        {/* ลบ Alert เดิมทิ้ง เพราะใช้ Toast แล้ว */}
 
         <Tabs defaultValue="profile" className="w-full">
           <TabsList className="grid w-full grid-cols-2 mb-8 bg-[#1a1f29] p-1 rounded-xl border border-white/10 h-auto">

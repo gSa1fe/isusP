@@ -6,6 +6,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Loader2, Send, Trash2, MessageSquare, ShieldAlert, ChevronDown } from 'lucide-react'
+import { toast } from "sonner"
 
 interface CommentSectionProps {
   episodeId?: string;
@@ -13,15 +14,14 @@ interface CommentSectionProps {
 }
 
 export default function CommentSection({ episodeId, comicId }: CommentSectionProps) {
+  // ... (State และ useEffect เหมือนเดิม)
   const [comments, setComments] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [newComment, setNewComment] = useState('')
-  
   const [page, setPage] = useState(1)
   const [hasMore, setHasMore] = useState(false)
-  
   const [currentUser, setCurrentUser] = useState<any>(null)
   const [isAdmin, setIsAdmin] = useState(false)
 
@@ -29,18 +29,17 @@ export default function CommentSection({ episodeId, comicId }: CommentSectionPro
     ? `/api/comments?episode_id=${episodeId}` 
     : `/api/comments?comic_id=${comicId}`
 
+  // ... (fetchComments เหมือนเดิม)
   const fetchComments = async (pageNum: number) => {
     try {
         const res = await fetch(`${baseApiUrl}&page=${pageNum}&limit=10`)
         if (res.ok) {
             const result = await res.json()
-            
             if (pageNum === 1) {
                 setComments(result.data || [])
             } else {
                 setComments(prev => [...prev, ...result.data])
             }
-            
             setHasMore(result.meta.hasMore)
             setPage(pageNum)
         }
@@ -56,7 +55,6 @@ export default function CommentSection({ episodeId, comicId }: CommentSectionPro
     setLoading(true)
     setComments([])
     setPage(1)
-    
     const checkUser = async () => {
       const { data: { user } } = await supabase.auth.getUser()
       setCurrentUser(user)
@@ -65,7 +63,6 @@ export default function CommentSection({ episodeId, comicId }: CommentSectionPro
         if (profile?.role === 'admin') setIsAdmin(true)
       }
     }
-    
     checkUser()
     fetchComments(1)
   }, [episodeId, comicId])
@@ -75,10 +72,10 @@ export default function CommentSection({ episodeId, comicId }: CommentSectionPro
       fetchComments(page + 1)
   }
 
+  // ... (handleSubmit เหมือนเดิม แต่เปลี่ยน alert เป็น toast ในกรณี error)
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!newComment.trim() || !currentUser) return
-
     setSubmitting(true)
     try {
       const res = await fetch('/api/comments', {
@@ -90,50 +87,75 @@ export default function CommentSection({ episodeId, comicId }: CommentSectionPro
             content: newComment 
         })
       })
-
       const data = await res.json()
-
       if (!res.ok) {
-          alert(data.error || 'ส่งคอมเมนต์ไม่สำเร็จ')
+          toast.error(data.error || 'ส่งคอมเมนต์ไม่สำเร็จ')
           return
       }
-
       setNewComment('')
+      toast.success("คอมเมนต์เรียบร้อย")
       
       if (data.data) {
           setComments(prev => [data.data, ...prev])
       } else {
           fetchComments(1)
       }
-
     } catch (error) {
-      alert('เกิดข้อผิดพลาดในการเชื่อมต่อ')
+      toast.error('เกิดข้อผิดพลาดในการเชื่อมต่อ')
     } finally {
       setSubmitting(false)
     }
   }
 
-  const handleDelete = async (commentId: string) => {
-    if (!confirm('ยืนยันการลบคอมเมนต์นี้?')) return
+  // ✅ ฟังก์ชันลบแบบใหม่ ใช้ Toast confirm ของ Sonner
+  const handleDelete = (commentId: string) => {
+    toast("คุณแน่ใจหรือไม่ที่จะลบคอมเมนต์นี้?", {
+      description: "การกระทำนี้ไม่สามารถย้อนกลับได้",
+      action: {
+        label: "ลบเลย",
+        onClick: () => confirmDelete(commentId), // ถ้ากดปุ่ม "ลบเลย" ให้เรียกฟังก์ชันลบจริง
+      },
+      cancel: {
+        label: "ยกเลิก",
+        onClick: () => console.log("Cancel"),
+      },
+      duration: 5000, // ให้เวลาตัดสินใจ 5 วินาที
+      position: 'top-center' // ให้เด่นๆ กลางจอ (ถ้าต้องการ หรือจะใช้ default ก็ได้)
+    })
+  }
+
+  // ฟังก์ชันลบจริง (แยกออกมาเพื่อให้ Toast เรียกใช้)
+  const confirmDelete = async (commentId: string) => {
     try {
+      // Optimistic update: ลบออกจากหน้าจอก่อนเลยเพื่อความลื่นไหล
+      const previousComments = [...comments]
+      setComments(prev => prev.filter(c => c.id !== commentId))
+
       const res = await fetch(`/api/comments?id=${commentId}`, { method: 'DELETE' })
       const data = await res.json()
       
-      if(!res.ok) throw new Error(data.error || 'Failed')
+      if(!res.ok) {
+        // ถ้าลบพลาด ให้คืนค่าคอมเมนต์กลับมา
+        setComments(previousComments)
+        throw new Error(data.error || 'Failed')
+      }
       
-      setComments(comments.filter(c => c.id !== commentId))
+      toast.success("ลบคอมเมนต์เรียบร้อยแล้ว")
+
     } catch (error: any) {
-      alert(error.message || 'ลบไม่สำเร็จ')
+      toast.error(error.message || 'ลบไม่สำเร็จ')
     }
   }
 
   return (
-    <div className="w-full bg-[#131720] p-6 rounded-xl">
+    <div className="w-full bg-[#131720] p-6 rounded-xl border border-white/5">
+      {/* Header */}
       <div className="flex items-center gap-2 mb-6 text-white">
         <MessageSquare className="w-5 h-5 text-primary" />
         <h3 className="font-bold text-lg">ความคิดเห็น</h3>
       </div>
 
+      {/* Comment Form */}
       {currentUser ? (
         <form onSubmit={handleSubmit} className="flex gap-4 mb-8">
           <Avatar className="w-10 h-10 border border-white/10">
@@ -163,6 +185,7 @@ export default function CommentSection({ episodeId, comicId }: CommentSectionPro
         </div>
       )}
 
+      {/* Comments List */}
       <div className="space-y-6">
         {loading ? (
             <div className="text-center py-4"><Loader2 className="w-6 h-6 animate-spin text-gray-500 mx-auto" /></div>
@@ -175,7 +198,6 @@ export default function CommentSection({ episodeId, comicId }: CommentSectionPro
                             <AvatarFallback className="bg-gray-700 text-gray-300">{comment.profiles?.username?.[0] || '?'}</AvatarFallback>
                         </Avatar>
                         
-                        {/* 👇 แก้จุดที่ 1: เพิ่ม min-w-0 เพื่อให้ flex item หดได้ */}
                         <div className="flex-1 min-w-0">
                             <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-2">
@@ -183,9 +205,10 @@ export default function CommentSection({ episodeId, comicId }: CommentSectionPro
                                     <span className="text-xs text-gray-500">{new Date(comment.created_at).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', hour: '2-digit', minute:'2-digit' })}</span>
                                 </div>
                                 
+                                {/* ปุ่มลบ */}
                                 {(currentUser?.id === comment.user_id || isAdmin) && (
                                     <button 
-                                        onClick={() => handleDelete(comment.id)} 
+                                        onClick={() => handleDelete(comment.id)} // ✅ เรียกฟังก์ชันใหม่
                                         className={`opacity-0 group-hover:opacity-100 transition-opacity ${isAdmin && currentUser?.id !== comment.user_id ? 'text-red-400 hover:text-red-500' : 'text-gray-600 hover:text-red-500'}`}
                                         title="ลบ"
                                     >
@@ -194,7 +217,6 @@ export default function CommentSection({ episodeId, comicId }: CommentSectionPro
                                 )}
                             </div>
                             
-                            {/* 👇 แก้จุดที่ 2: เพิ่ม break-words (หรือ break-all) เพื่อตัดคำยาวๆ */}
                             <p className="text-sm text-gray-300 mt-1 leading-relaxed whitespace-pre-wrap break-words">
                                 {comment.content}
                             </p>

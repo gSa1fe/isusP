@@ -8,6 +8,7 @@ import { supabase } from '@/lib/supabase'
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Plus, ArrowLeft, Trash2, Eye, Edit } from 'lucide-react' 
+import { toast } from "sonner"
 
 export default function ManageEpisodesPage() {
   const { id } = useParams() // id นี้คือ comic_id
@@ -48,10 +49,10 @@ export default function ManageEpisodesPage() {
       }
 
       setEpisodes(episodes.filter(e => e.id !== epId))
-      alert('✅ ลบตอนเรียบร้อยแล้ว')
+      toast.success('✅ ลบตอนเรียบร้อยแล้ว')
 
     } catch (error: any) {
-      alert(`Error: ${error.message}`)
+      toast.error(`Error: ${error.message}`)
     }
   }
 

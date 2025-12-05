@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ArrowLeft, Upload, Loader2, FileImage, X, Plus } from 'lucide-react'
+import { toast } from 'sonner'
 
 // ฟังก์ชันสำหรับหน่วงเวลา (Cooldown)
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -102,7 +103,7 @@ export default function CreateEpisodePage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!title || !episodeNumber || selectedFiles.length === 0) {
-      alert("กรุณากรอกข้อมูลให้ครบและเลือกรูปภาพ")
+      toast.error("กรุณากรอกข้อมูลให้ครบและเลือกรูปภาพ")
       return
     }
 
@@ -137,12 +138,12 @@ export default function CreateEpisodePage() {
       setUploadProgress('เสร็จเรียบร้อย!')
       await delay(500); // หน่วงนิดหน่อยให้เห็นข้อความสำเร็จ
 
-      alert("✅ เพิ่มตอนใหม่เรียบร้อยแล้ว!")
+      toast.success("✅ เพิ่มตอนใหม่เรียบร้อยแล้ว!")
       router.push(`/admin/comics/${comicId}`)
 
     } catch (error: any) {
       console.error(error)
-      alert(`เกิดข้อผิดพลาด: ${error.message}`)
+      toast.error(`เกิดข้อผิดพลาด: ${error.message}`)
     } finally {
       setLoading(false)
       setUploadProgress('')

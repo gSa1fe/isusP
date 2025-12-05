@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Plus, Pencil, Trash2, Layers, Search, Loader2 } from 'lucide-react'
 import { Input } from "@/components/ui/input"
+import { toast } from "sonner"
 
 export default function ComicsListPage() {
   const [comics, setComics] = useState<any[]>([])
@@ -32,19 +33,31 @@ export default function ComicsListPage() {
     fetchComics()
   }, [])
 
-  // ฟังก์ชันลบการ์ตูน
-  const handleDelete = async (id: string) => {
-    if (!confirm('ยืนยันที่จะลบเรื่องนี้? (ตอนทั้งหมดจะถูกลบด้วย)')) return
+  // ฟังก์ชันลบจริง
+const confirmDelete = async (id: string) => {
+  const { error } = await supabase.from('comics').delete().eq('id', id)
 
-    const { error } = await supabase.from('comics').delete().eq('id', id)
-    
-    if (error) {
-      alert('ลบไม่สำเร็จ: ' + error.message)
-    } else {
-      // ลบออกจาก State ทันทีไม่ต้องโหลดใหม่
-      setComics(comics.filter(c => c.id !== id))
-    }
+  if (error) {
+    toast.error('ลบไม่สำเร็จ: ' + error.message)
+  } else {
+    setComics(comics.filter(c => c.id !== id))
+    toast.success("ลบการ์ตูนสำเร็จ")
   }
+}
+
+// ฟังก์ชันแสดง Confirm
+const handleDelete = (id: string) => {
+  toast.warning("คุณแน่ใจหรือไม่ที่จะลบเรื่องนี้?", {
+    description: "การกระทำนี้ไม่สามารถย้อนกลับได้",
+    action: {
+      label: "ลบเลย",
+      onClick: () => confirmDelete(id),
+    },
+    duration: 5000,
+    position: "top-center",
+  })
+}
+
 
   // กรองการค้นหา
   const filteredComics = comics.filter(c => 
