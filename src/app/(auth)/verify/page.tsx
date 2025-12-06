@@ -27,12 +27,13 @@ export default function VerifyPage() {
 
       console.log("FACTOR:", factors.all)
 
-      const totp = factors.all?.find(f => f.factor_type === 'totp')
+      // ✅ หา factor ที่ verified แล้วเท่านั้น
+      const totp = factors.all?.find(f => f.factor_type === 'totp' && f.status === 'verified')
 
       if (totp) {
         setFactorId(totp.id)
       } else {
-        toast.error("ไม่พบตัวเลือก 2FA")
+        toast.error("ไม่พบตัวเลือก 2FA ที่ยืนยันแล้ว")
         router.push('/login')
       }
     }
@@ -47,79 +48,77 @@ export default function VerifyPage() {
     setLoading(true)
     const code = mfaCode.replace(/\s/g, '')
 
-    try {
-      console.log("🔍 Starting verification with code:", code)
-      console.log("🔍 Factor ID:", factorId)
+    console.log("🔍 Starting verification...")
+    console.log("Factor ID:", factorId)
+    console.log("Code:", code)
 
+    try {
       // ✅ Step 1: สร้าง Challenge
-      console.log("🎯 Creating challenge...")
+      console.log("Step 1: Creating challenge...")
       const { data: challengeData, error: challengeError } = await supabase.auth.mfa.challenge({
         factorId
       })
 
-      console.log("📝 Challenge result:", { challengeData, challengeError })
-
-      if (challengeError) throw challengeError
-      if (!challengeData) throw new Error("No challenge created")
-
-      // ✅ Step 2: ส่ง Verify Request แต่ไม่รอให้เสร็จ (Fire and Forget)
-      console.log("🔐 Verifying code with challenge ID:", challengeData.id)
+      if (challengeError) {
+        console.error("❌ Challenge error:", challengeError)
+        throw challengeError
+      }
       
-      // ส่ง request ไปแต่ไม่รอ
-      supabase.auth.mfa.verify({
+      if (!challengeData) {
+        throw new Error("No challenge created")
+      }
+      
+      console.log("✅ Challenge created:", challengeData.id)
+
+      // ✅ Step 2: Verify (รอผลลัพธ์จริง)
+      console.log("Step 2: Verifying code...")
+      const { error: verifyError } = await supabase.auth.mfa.verify({
         factorId,
         challengeId: challengeData.id,
         code
-      }).then(({ error: verifyError }) => {
-        if (verifyError) {
-          console.error("❌ Background verify error:", verifyError)
-        } else {
-          console.log("✅ Background verify success!")
-        }
       })
 
-      // ✅ Step 3: แสดง toast ทันที
-      toast.success("กำลังตรวจสอบรหัส...", {
-        description: "กรุณารอสักครู่",
-        duration: 5000,
-      })
-
-      // ✅ Step 4: รอ 3 วินาที แล้ว redirect (ให้เวลา API ทำงาน background)
-      console.log("⏳ Waiting 3 seconds for verification to complete...")
-      await new Promise(resolve => setTimeout(resolve, 3000))
-
-      // ✅ Step 5: Force refresh session
-      console.log("🔄 Checking session...")
-      const { data: sessionData } = await supabase.auth.refreshSession()
-      
-      // ✅ Step 6: เช็ค MFA Level
-      const { data: mfaLevel } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
-      console.log("🔐 MFA Level:", mfaLevel)
-
-      // ถ้ายังเป็น aal1 (ยังไม่ผ่าน) ให้รออีก 2 วินาที
-      if (mfaLevel?.currentLevel === 'aal1') {
-        console.log("⏳ Still AAL1, waiting 2 more seconds...")
-        toast.loading("กำลังยืนยันตัวตน...", { duration: 2000 })
-        await new Promise(resolve => setTimeout(resolve, 2000))
+      if (verifyError) {
+        console.error("❌ Verify error:", verifyError)
+        throw verifyError
       }
 
-      // ✅ Step 7: Redirect (ไม่ว่าจะสำเร็จหรือไม่ ให้ Middleware จัดการเอง)
-      console.log("🚀 Redirecting to home page...")
+      console.log("✅ Verification successful!")
+
+      // ✅ Step 3: Refresh session
+      console.log("Step 3: Refreshing session...")
+      const { error: refreshError } = await supabase.auth.refreshSession()
+      
+      if (refreshError) {
+        console.warn("Session refresh warning:", refreshError)
+      }
+
+      // ✅ Step 4: ตรวจสอบ MFA level
+      const { data: mfaLevel } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+      console.log("🔐 MFA Level after verify:", mfaLevel)
+
       toast.success("ยืนยันตัวตนสำเร็จ!", {
         description: "กำลังนำคุณเข้าสู่ระบบ...",
-        duration: 2000,
       })
 
-      await new Promise(resolve => setTimeout(resolve, 1000))
-      console.log("🚀 NOW Redirecting...")
+      // ✅ Step 5: Redirect ทันที
+      console.log("🚀 Redirecting to home...")
       window.location.href = '/'
 
     } catch (error: any) {
-      console.error("❌ Verification error:", error)
+      console.error("❌ Full verification error:", error)
       
-      toast.error("เกิดข้อผิดพลาด", {
-        description: error.message || "กรุณาลองใหม่อีกครั้ง"
+      let errorMessage = "กรุณาลองใหม่อีกครั้ง"
+      if (error.message?.includes("Invalid")) {
+        errorMessage = "รหัสไม่ถูกต้อง กรุณาตรวจสอบและลองใหม่"
+      } else if (error.message?.includes("expired")) {
+        errorMessage = "รหัสหมดอายุแล้ว กรุณาใช้รหัสใหม่จากแอป"
+      }
+      
+      toast.error("ยืนยันไม่สำเร็จ", {
+        description: errorMessage
       })
+      
       setLoading(false)
       setMfaCode('')
     }
@@ -148,14 +147,17 @@ export default function VerifyPage() {
               <Label className="text-center block text-foreground/80">รหัสยืนยัน (Code)</Label>
               <Input 
                 type="text" 
-                placeholder="000 000" 
+                placeholder="000000" 
                 className="bg-secondary/50 mt-2 text-center text-2xl tracking-[0.5em] font-mono h-14 text-foreground"
                 value={mfaCode}
-                onChange={(e) => setMfaCode(e.target.value)}
-                maxLength={7}
+                onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, ''))}
+                maxLength={6}
                 autoFocus
                 disabled={loading}
               />
+              <p className="text-xs text-center text-muted-foreground mt-2">
+                รหัสจะเปลี่ยนทุก 30 วินาที
+              </p>
             </div>
           </CardContent>
           <CardFooter className="flex flex-col gap-3">

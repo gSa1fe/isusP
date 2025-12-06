@@ -71,21 +71,16 @@ export default function SettingsPage() {
     initData()
   }, [router])
 
-  // ✅ แก้ไข: ใช้ data.all เพื่อดึงรายการที่ Pending (Unverified) มาด้วย
   const fetchFactors = async () => {
     setFetchingMFA(true)
     try {
         const { data, error } = await supabase.auth.mfa.listFactors()
         if (error) throw error
         
-        // ดึงข้อมูลทั้งหมดจาก data.all แทน data.totp
         const allFactors = data.all || []
-        
-        // กรองเอาเฉพาะ type 'totp'
         const totpFactors = allFactors.filter((f: any) => f.factor_type === 'totp')
 
         const sorted = totpFactors.sort((a: any, b: any) => {
-            // Verified ขึ้นก่อน
             if (a.status === 'verified' && b.status !== 'verified') return -1
             if (a.status !== 'verified' && b.status === 'verified') return 1
             return 0
@@ -196,7 +191,6 @@ export default function SettingsPage() {
       if (error) throw error
       setEnrollingData(data)
       
-      // ดึงข้อมูลอีกครั้งเพื่อให้รายการ Pending ขึ้นมาแสดงทันที
       await fetchFactors()
 
     } catch (error: any) {
@@ -204,7 +198,6 @@ export default function SettingsPage() {
           toast.error("มีรายการ 2FA ค้างอยู่", {
             description: "กรุณาลบรายการ 'รอการยืนยัน' (สีเหลือง) ด้านล่างทิ้งก่อน แล้วลองใหม่ครับ"
           })
-          // ดึงข้อมูลเพื่อให้เห็นรายการที่ค้าง
           await fetchFactors()
       } else {
           toast.error(error.message)
@@ -214,34 +207,84 @@ export default function SettingsPage() {
     }
   }
 
+  // ✅ แก้ไขฟังก์ชันนี้ - ปัญหาหลักอยู่ตรงนี้
   const handleVerifyMFA = async () => {
-    if (!verifyCode || !enrollingData) return
-    setLoadingMFA(true)
-    const code = verifyCode.replace(/\s/g, '') // ตัดช่องว่าง
-    try {
-      const { data, error } = await supabase.auth.mfa.challengeAndVerify({
-        factorId: enrollingData.id,
-        code: code
-      })
-      if (error) throw error
+  if (!verifyCode || !enrollingData) return
+  
+  setLoadingMFA(true)
+  const code = verifyCode.replace(/\s/g, '')
+  
+  console.log("🔍 Starting MFA verification...")
+  console.log("Factor ID:", enrollingData.id)
+  console.log("Code:", code)
+  
+  try {
+    // ✅ Step 1: สร้าง Challenge ก่อน
+    console.log("Step 1: Creating challenge...")
+    const { data: challengeData, error: challengeError } = await supabase.auth.mfa.challenge({
+      factorId: enrollingData.id
+    })
 
-      toast.success("เปิดใช้งาน 2FA สำเร็จ!", {
-        description: "บัญชีของคุณปลอดภัยขึ้นแล้ว"
-      })
-      
-      setEnrollingData(null)
-      setVerifyCode('')
-      await fetchFactors()
-
-    } catch (error: any) {
-      console.error(error)
-      toast.error("รหัสไม่ถูกต้อง หรือเกิดข้อผิดพลาด")
-    } finally {
-      setLoadingMFA(false)
+    if (challengeError) {
+      console.error("❌ Challenge error:", challengeError)
+      throw challengeError
     }
-  }
 
-  // ฟังก์ชันลบรายการเดียว (ใช้ Toast Confirm)
+    console.log("✅ Challenge created:", challengeData?.id)
+
+    // ✅ Step 2: Verify ด้วย challengeId
+    console.log("Step 2: Verifying code...")
+    const { data: verifyData, error: verifyError } = await supabase.auth.mfa.verify({
+      factorId: enrollingData.id,
+      challengeId: challengeData.id,
+      code: code
+    })
+
+    if (verifyError) {
+      console.error("❌ Verify error:", verifyError)
+      throw verifyError
+    }
+
+    console.log("✅ MFA Verification successful!", verifyData)
+
+    // ✅ Step 3: Refresh session
+    console.log("Step 3: Refreshing session...")
+    const { error: refreshError } = await supabase.auth.refreshSession()
+    if (refreshError) {
+      console.warn("Session refresh warning:", refreshError)
+    }
+
+    toast.success("เปิดใช้งาน 2FA สำเร็จ!", {
+      description: "บัญชีของคุณปลอดภัยขึ้นแล้ว"
+    })
+    
+    // Reset state
+    setEnrollingData(null)
+    setVerifyCode('')
+    
+    // Refresh factors list
+    await fetchFactors()
+
+  } catch (error: any) {
+    console.error("❌ Full MFA error:", error)
+    
+    let errorMessage = "กรุณาลองใหม่อีกครั้ง"
+    if (error.message?.includes("Invalid") || error.message?.includes("invalid")) {
+      errorMessage = "รหัสไม่ถูกต้อง กรุณาตรวจสอบและลองใหม่"
+    } else if (error.message?.includes("expired")) {
+      errorMessage = "รหัสหมดอายุแล้ว กรุณาใช้รหัสใหม่จากแอป"
+    }
+    
+    toast.error("ยืนยันไม่สำเร็จ", {
+      description: errorMessage
+    })
+    
+    setVerifyCode('')
+  } finally {
+    setLoadingMFA(false)
+  }
+}
+
   const handleUnenrollMFA = (factorId: string) => {
     toast("ต้องการลบรายการ MFA นี้หรือไม่?", {
       description: "การกระทำนี้ไม่สามารถย้อนกลับได้",
@@ -278,7 +321,6 @@ export default function SettingsPage() {
     }
   }
 
-  // ✅ ฟังก์ชัน Reset All (เปลี่ยนมาใช้ Toast Confirm)
   const handleResetAllMFA = () => {
     toast("คำเตือน: ล้างค่า 2FA ทั้งหมด?", {
       description: "รายการทั้งหมดจะถูกลบ คุณต้องตั้งค่าใหม่หากต้องการใช้งาน",
@@ -398,7 +440,6 @@ export default function SettingsPage() {
                                 {factors.some(f => f.status === 'verified') && <span className="text-xs bg-green-500/20 text-green-400 px-2 py-0.5 rounded border border-green-500/50">เปิดใช้งานแล้ว</span>}
                             </CardTitle>
                             <CardDescription className="text-gray-400 mt-1">เพิ่มความปลอดภัยด้วย Google Authenticator</CardDescription>
-                            <p className="text-[14px] text-amber-500 mt-2">*หากใส่รหัสแล้วรอนาน กรุณารีเฟรชหน้าเว็บใหม่</p>
                         </div>
                         <Button variant="ghost" size="icon" onClick={fetchFactors} disabled={fetchingMFA} className="text-gray-400 hover:text-white">
                             <RefreshCcw className={`w-4 h-4 ${fetchingMFA ? 'animate-spin' : ''}`} />
@@ -433,12 +474,31 @@ export default function SettingsPage() {
                             <div className="pt-4 border-t border-white/10">
                                 <Label className="text-white mb-2 block">กรอกรหัส 6 หลักจากแอป</Label>
                                 <div className="flex gap-2">
-                                    <Input value={verifyCode} onChange={e => setVerifyCode(e.target.value)} placeholder="000 000" className="bg-black/20 border-white/10 text-white font-mono text-center tracking-widest text-lg" maxLength={6} />
-                                    <Button onClick={handleVerifyMFA} disabled={loadingMFA || verifyCode.length < 6} className="bg-primary text-black font-bold">
-                                        {loadingMFA ? <Loader2 className="animate-spin" /> : 'ยืนยัน'}
+                                    <Input 
+                                        value={verifyCode} 
+                                        onChange={e => setVerifyCode(e.target.value)} 
+                                        placeholder="000000" 
+                                        className="bg-black/20 border-white/10 text-white font-mono text-center tracking-widest text-lg" 
+                                        maxLength={6}
+                                        disabled={loadingMFA}
+                                    />
+                                    <Button 
+                                        onClick={handleVerifyMFA} 
+                                        disabled={loadingMFA || verifyCode.replace(/\s/g, '').length < 6} 
+                                        className="bg-primary text-black font-bold min-w-[100px]"
+                                    >
+                                        {loadingMFA ? <Loader2 className="animate-spin w-4 h-4" /> : 'ยืนยัน'}
                                     </Button>
-                                    <Button variant="ghost" onClick={cancelEnroll} className="text-gray-400 hover:text-white">ยกเลิก</Button>
+                                    <Button 
+                                        variant="ghost" 
+                                        onClick={cancelEnroll} 
+                                        className="text-gray-400 hover:text-white"
+                                        disabled={loadingMFA}
+                                    >
+                                        ยกเลิก
+                                    </Button>
                                 </div>
+                                <p className="text-xs text-gray-500 mt-2">* รหัสจะเปลี่ยนทุก 30 วินาที กรุณากรอกให้ทันเวลา</p>
                             </div>
                         </div>
                     )}
@@ -473,12 +533,11 @@ export default function SettingsPage() {
                                                 <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold uppercase ${factor.status === 'verified' ? "bg-green-500/10 text-green-400" : "bg-yellow-500/10 text-yellow-400"}`}>
                                                     {factor.status === 'verified' ? 'VERIFIED' : 'PENDING'}
                                                 </span>
-                                                {factor.status !== 'verified' && <span className="text-xs text-gray-500 hidden sm:inline">(สแกน QR ไม่สำเร็จ / ค้างอยู่)</span>}
+                                                {factor.status !== 'verified' && <span className="text-xs text-gray-500 hidden sm:inline">(รอยืนยัน - กรุณาลบแล้วลองใหม่)</span>}
                                             </div>
                                         </div>
                                     </div>
                                     <div className="flex items-center gap-2">
-                                        {/* เรียกฟังก์ชันลบแบบมี Confirm */}
                                         <Button variant="ghost" size="sm" onClick={() => handleUnenrollMFA(factor.id)} className="text-red-400 hover:text-red-300 hover:bg-red-500/10 h-8 px-3">
                                             <Trash2 className="w-4 h-4 mr-2" /> ลบ
                                         </Button>
@@ -497,11 +556,11 @@ export default function SettingsPage() {
                         </div>
                     )}
 
-                    {/* ปุ่ม Reset All (Toast Confirm) */}
+                    {/* ปุ่ม Reset All */}
                     {!fetchingMFA && (
                         <div className="mt-8 pt-8 border-t border-white/5">
                              <h4 className="text-xs font-bold text-red-500 uppercase tracking-wider mb-2">โซนอันตราย</h4>
-                             <Button variant="Default" size="sm" onClick={handleResetAllMFA} disabled={loadingMFA} className="w-full sm:w-auto bg-red-500/10 text-red-500 hover:bg-red-500/20 border border-red-500/20">
+                             <Button variant="destructive" size="sm" onClick={handleResetAllMFA} disabled={loadingMFA} className="w-full sm:w-auto bg-red-500/10 text-red-500 hover:bg-red-500/20 border border-red-500/20">
                                 {loadingMFA ? <Loader2 className="mr-2 animate-spin" /> : <RotateCcw className="mr-2 w-4 h-4" />}
                                 ล้างค่า 2FA ทั้งหมด (Reset)
                              </Button>
