@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Loader2, User, Lock, Pen, UserPen, Mail, Camera, ShieldCheck, QrCode, Trash2, AlertTriangle, RefreshCcw, RotateCcw } from 'lucide-react'
+import { Loader2, User, Lock, Pen, UserPen, Mail, Camera } from 'lucide-react'
 import { toast } from "sonner"
 
 export default function SettingsPage() {
@@ -35,12 +35,8 @@ export default function SettingsPage() {
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
 
-  // 2FA State
-  const [factors, setFactors] = useState<any[]>([])
-  const [enrollingData, setEnrollingData] = useState<any>(null)
-  const [verifyCode, setVerifyCode] = useState('')
-  const [loadingMFA, setLoadingMFA] = useState(false)
-  const [fetchingMFA, setFetchingMFA] = useState(true) 
+  // Provider info
+  const [authProvider, setAuthProvider] = useState<string | null>(null)
 
   // 1. Init Data
   useEffect(() => {
@@ -52,6 +48,10 @@ export default function SettingsPage() {
       }
       setEmail(user.email || '')
       setNewEmail(user.email || '')
+      
+      // เช็คว่า login มาจาก OAuth หรือ Email
+      const provider = user.app_metadata?.provider
+      setAuthProvider(provider || 'email')
 
       const { data: profile } = await supabase
         .from('profiles')
@@ -63,35 +63,11 @@ export default function SettingsPage() {
         setUsername(profile.username || '')
         setAvatarUrl(profile.avatar_url || '')
       }
-
-      await fetchFactors()
       
       setLoadingData(false)
     }
     initData()
   }, [router])
-
-  const fetchFactors = async () => {
-    setFetchingMFA(true)
-    try {
-        const { data, error } = await supabase.auth.mfa.listFactors()
-        if (error) throw error
-        
-        const allFactors = data.all || []
-        const totpFactors = allFactors.filter((f: any) => f.factor_type === 'totp')
-
-        const sorted = totpFactors.sort((a: any, b: any) => {
-            if (a.status === 'verified' && b.status !== 'verified') return -1
-            if (a.status !== 'verified' && b.status === 'verified') return 1
-            return 0
-        })
-        setFactors(sorted)
-    } catch (err) {
-        console.error("Error fetching factors:", err)
-    } finally {
-        setFetchingMFA(false)
-    }
-  }
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -177,199 +153,6 @@ export default function SettingsPage() {
     }
   }
 
-  // --- 2FA Logic ---
-  
-  const handleEnrollMFA = async () => {
-    setLoadingMFA(true)
-    try {
-      const { data, error } = await supabase.auth.mfa.enroll({
-        factorType: 'totp',
-        friendlyName: username || email || 'My App User',
-        issuer: 'HEEDOM881',
-      })
-      
-      if (error) throw error
-      setEnrollingData(data)
-      
-      await fetchFactors()
-
-    } catch (error: any) {
-      if (error.message?.includes("already exists")) {
-          toast.error("มีรายการ 2FA ค้างอยู่", {
-            description: "กรุณาลบรายการ 'รอการยืนยัน' (สีเหลือง) ด้านล่างทิ้งก่อน แล้วลองใหม่ครับ"
-          })
-          await fetchFactors()
-      } else {
-          toast.error(error.message)
-      }
-    } finally {
-      setLoadingMFA(false)
-    }
-  }
-
-  // ✅ แก้ไขฟังก์ชันนี้ - ปัญหาหลักอยู่ตรงนี้
-  const handleVerifyMFA = async () => {
-  if (!verifyCode || !enrollingData) return
-  
-  setLoadingMFA(true)
-  const code = verifyCode.replace(/\s/g, '')
-  
-  console.log("🔍 Starting MFA verification...")
-  console.log("Factor ID:", enrollingData.id)
-  console.log("Code:", code)
-  
-  try {
-    // ✅ Step 1: สร้าง Challenge ก่อน
-    console.log("Step 1: Creating challenge...")
-    const { data: challengeData, error: challengeError } = await supabase.auth.mfa.challenge({
-      factorId: enrollingData.id
-    })
-
-    if (challengeError) {
-      console.error("❌ Challenge error:", challengeError)
-      throw challengeError
-    }
-
-    console.log("✅ Challenge created:", challengeData?.id)
-
-    // ✅ Step 2: Verify ด้วย challengeId
-    console.log("Step 2: Verifying code...")
-    const { data: verifyData, error: verifyError } = await supabase.auth.mfa.verify({
-      factorId: enrollingData.id,
-      challengeId: challengeData.id,
-      code: code
-    })
-
-    if (verifyError) {
-      console.error("❌ Verify error:", verifyError)
-      throw verifyError
-    }
-
-    console.log("✅ MFA Verification successful!", verifyData)
-
-    // ✅ Step 3: Refresh session
-    console.log("Step 3: Refreshing session...")
-    const { error: refreshError } = await supabase.auth.refreshSession()
-    if (refreshError) {
-      console.warn("Session refresh warning:", refreshError)
-    }
-
-    toast.success("เปิดใช้งาน 2FA สำเร็จ!", {
-      description: "บัญชีของคุณปลอดภัยขึ้นแล้ว"
-    })
-    
-    // Reset state
-    setEnrollingData(null)
-    setVerifyCode('')
-    
-    // Refresh factors list
-    await fetchFactors()
-
-  } catch (error: any) {
-    console.error("❌ Full MFA error:", error)
-    
-    let errorMessage = "กรุณาลองใหม่อีกครั้ง"
-    if (error.message?.includes("Invalid") || error.message?.includes("invalid")) {
-      errorMessage = "รหัสไม่ถูกต้อง กรุณาตรวจสอบและลองใหม่"
-    } else if (error.message?.includes("expired")) {
-      errorMessage = "รหัสหมดอายุแล้ว กรุณาใช้รหัสใหม่จากแอป"
-    }
-    
-    toast.error("ยืนยันไม่สำเร็จ", {
-      description: errorMessage
-    })
-    
-    setVerifyCode('')
-  } finally {
-    setLoadingMFA(false)
-  }
-}
-
-  const handleUnenrollMFA = (factorId: string) => {
-    toast("ต้องการลบรายการ MFA นี้หรือไม่?", {
-      description: "การกระทำนี้ไม่สามารถย้อนกลับได้",
-      action: {
-        label: "ลบเลย",
-        onClick: () => confirmUnenroll(factorId),
-      },
-      cancel: {
-        label: "ยกเลิก",
-      },
-      duration: 5000,
-      position: "top-center",
-    })
-  }
-
-  const confirmUnenroll = async (factorId: string) => {
-    setLoadingMFA(true)
-    try {
-      const { error } = await supabase.auth.mfa.unenroll({ factorId })
-      if (error) throw error
-
-      toast.success("ลบรายการเรียบร้อยแล้ว")
-
-      if (enrollingData?.id === factorId) {
-        setEnrollingData(null)
-        setVerifyCode("")
-      }
-
-      await fetchFactors()
-    } catch (error: any) {
-      toast.error(error.message || "เกิดข้อผิดพลาด")
-    } finally {
-      setLoadingMFA(false)
-    }
-  }
-
-  const handleResetAllMFA = () => {
-    toast("คำเตือน: ล้างค่า 2FA ทั้งหมด?", {
-      description: "รายการทั้งหมดจะถูกลบ คุณต้องตั้งค่าใหม่หากต้องการใช้งาน",
-      action: {
-        label: "ยืนยันล้างข้อมูล",
-        onClick: () => confirmResetAllMFA(),
-      },
-      cancel: {
-        label: "ยกเลิก",
-      },
-      duration: 8000,
-      position: "top-center",
-    })
-  }
-
-  const confirmResetAllMFA = async () => {
-    setLoadingMFA(true)
-    try {
-        const { data, error } = await supabase.auth.mfa.listFactors()
-        if (error) throw error
-
-        const allFactors = data.all || []
-
-        if (allFactors.length === 0) {
-            toast.info("ไม่พบรายการ 2FA ให้ลบ")
-        } else {
-            for (const factor of allFactors) {
-                await supabase.auth.mfa.unenroll({ factorId: factor.id })
-            }
-            toast.success(`ล้างข้อมูลสำเร็จ (${allFactors.length} รายการ)`)
-        }
-        
-        setFactors([])
-        setEnrollingData(null)
-        setVerifyCode('')
-        await fetchFactors()
-
-    } catch (error: any) {
-        toast.error("เกิดข้อผิดพลาด: " + error.message)
-    } finally {
-        setLoadingMFA(false)
-    }
-  }
-
-  const cancelEnroll = () => {
-      setEnrollingData(null)
-      setVerifyCode('')
-  }
-
   if (loadingData) return <div className="h-screen flex items-center justify-center"><Loader2 className="animate-spin text-primary w-8 h-8" /></div>
 
   return (
@@ -381,10 +164,9 @@ export default function SettingsPage() {
         </div>
 
         <Tabs defaultValue="profile" className="w-full">
-          <TabsList className="grid w-full grid-cols-3 mb-8 bg-[#1a1f29] p-1 rounded-xl border border-white/10 h-auto">
+          <TabsList className="grid w-full grid-cols-2 mb-8 bg-[#1a1f29] p-1 rounded-xl border border-white/10 h-auto">
             <TabsTrigger value="profile" className="data-[state=active]:bg-primary data-[state=active]:text-black h-10"><User className="w-4 h-4 mr-2" /> โปรไฟล์</TabsTrigger>
             <TabsTrigger value="account" className="data-[state=active]:bg-primary data-[state=active]:text-black h-10"><Mail className="w-4 h-4 mr-2" /> บัญชี</TabsTrigger>
-            <TabsTrigger value="security" className="data-[state=active]:bg-primary data-[state=active]:text-black h-10"><ShieldCheck className="w-4 h-4 mr-2" /> ความปลอดภัย</TabsTrigger>
           </TabsList>
 
           <TabsContent value="profile">
@@ -408,6 +190,26 @@ export default function SettingsPage() {
           </TabsContent>
 
           <TabsContent value="account" className="space-y-6">
+            {/* OAuth Provider Notice */}
+            {authProvider && authProvider !== 'email' && (
+              <Card className="border-blue-500/30 bg-blue-500/10">
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-3">
+                    <svg className="h-6 w-6" viewBox="0 0 24 24">
+                      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+                      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+                    </svg>
+                    <div>
+                      <p className="text-sm text-blue-400 font-medium">บัญชีเชื่อมต่อกับ Google</p>
+                      <p className="text-xs text-gray-400">คุณสามารถเข้าสู่ระบบด้วย Google ได้โดยไม่ต้องใช้รหัสผ่าน</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             <Card className="border-white/10 bg-[#131720]">
                 <CardHeader><CardTitle className="text-white">จัดการอีเมล</CardTitle><CardDescription className="text-gray-400">อีเมลปัจจุบัน: <span className="text-white">{email}</span></CardDescription></CardHeader>
                 <form onSubmit={handleUpdateEmail}>
@@ -417,161 +219,21 @@ export default function SettingsPage() {
                     <CardFooter className="flex justify-end pt-6 border-t border-white/5"><Button type="submit" disabled={savingEmail || newEmail === email} variant="secondary" className="min-w-[120px]">{savingEmail ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Mail className="mr-2 h-4 w-4" />} เปลี่ยนอีเมล</Button></CardFooter>
                 </form>
             </Card>
-            <Card className="border-white/10 bg-[#131720]">
-              <CardHeader><CardTitle className="text-white">เปลี่ยนรหัสผ่าน</CardTitle><CardDescription className="text-gray-400">รักษาบัญชีของคุณให้ปลอดภัย</CardDescription></CardHeader>
-              <form onSubmit={handleUpdatePassword}>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2"><Label className="text-gray-300">รหัสผ่านปัจจุบัน <span className="text-red-500">*</span></Label><Input type="password" className="bg-black/20 border-white/10 text-white focus-visible:ring-primary" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} required /></div>
-                  <div className="space-y-2"><Label className="text-gray-300">รหัสผ่านใหม่</Label><Input type="password" className="bg-black/20 border-white/10 text-white focus-visible:ring-primary" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} minLength={6} /></div>
-                  <div className="space-y-2"><Label className="text-gray-300">ยืนยันรหัสผ่านใหม่</Label><Input type="password" className="bg-black/20 border-white/10 text-white focus-visible:ring-primary" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} /></div>
-                </CardContent>
-                <CardFooter className="flex justify-end pt-6 border-t border-white/5"><Button type="submit" variant="secondary" disabled={savingPassword || !newPassword}>{savingPassword ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> กำลังดำเนินการ...</> : <><Pen className="mr-2 h-4 w-4" /> เปลี่ยนรหัส</>}</Button></CardFooter>
-              </form>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="security">
-            <Card className="border-white/10 bg-[#131720]">
-                <CardHeader>
-                    <div className="flex items-center justify-between">
-                        <div>
-                            <CardTitle className="text-white flex items-center gap-2">
-                                Two-Factor Authentication (2FA)
-                                {factors.some(f => f.status === 'verified') && <span className="text-xs bg-green-500/20 text-green-400 px-2 py-0.5 rounded border border-green-500/50">เปิดใช้งานแล้ว</span>}
-                            </CardTitle>
-                            <CardDescription className="text-gray-400 mt-1">เพิ่มความปลอดภัยด้วย Google Authenticator</CardDescription>
-                        </div>
-                        <Button variant="ghost" size="icon" onClick={fetchFactors} disabled={fetchingMFA} className="text-gray-400 hover:text-white">
-                            <RefreshCcw className={`w-4 h-4 ${fetchingMFA ? 'animate-spin' : ''}`} />
-                        </Button>
-                    </div>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                    
-                    {/* Loading */}
-                    {fetchingMFA && (
-                        <div className="text-center py-10 text-gray-500">
-                            <Loader2 className="w-8 h-8 animate-spin mx-auto mb-2" />
-                            กำลังโหลดข้อมูล...
-                        </div>
-                    )}
-
-                    {/* Enroll Mode */}
-                    {!fetchingMFA && enrollingData && (
-                        <div className="bg-black/30 border border-primary/30 p-6 rounded-xl space-y-4 animate-in fade-in zoom-in-95">
-                            <div className="flex flex-col md:flex-row gap-6 items-center">
-                                <div className="bg-white p-2 rounded-lg shrink-0">
-                                    <img src={enrollingData.totp.qr_code} alt="QR Code" width={150} height={150} className="block" />
-                                </div>
-                                <div className="space-y-2 text-center md:text-left">
-                                    <h3 className="font-bold text-white text-lg">สแกน QR Code</h3>
-                                    <p className="text-sm text-gray-400">ใช้แอป Authenticator สแกน QR Code นี้ หรือกรอกรหัส Secret Key ด้านล่าง</p>
-                                    <div className="p-2 bg-black/50 border border-white/10 rounded text-xs font-mono text-primary break-all">
-                                        {enrollingData.totp.secret}
-                                    </div>
-                                </div>
-                            </div>
-                            <div className="pt-4 border-t border-white/10">
-                                <Label className="text-white mb-2 block">กรอกรหัส 6 หลักจากแอป</Label>
-                                <div className="flex gap-2">
-                                    <Input 
-                                        value={verifyCode} 
-                                        onChange={e => setVerifyCode(e.target.value)} 
-                                        placeholder="000000" 
-                                        className="bg-black/20 border-white/10 text-white font-mono text-center tracking-widest text-lg" 
-                                        maxLength={6}
-                                        disabled={loadingMFA}
-                                    />
-                                    <Button 
-                                        onClick={handleVerifyMFA} 
-                                        disabled={loadingMFA || verifyCode.replace(/\s/g, '').length < 6} 
-                                        className="bg-primary text-black font-bold min-w-[100px]"
-                                    >
-                                        {loadingMFA ? <Loader2 className="animate-spin w-4 h-4" /> : 'ยืนยัน'}
-                                    </Button>
-                                    <Button 
-                                        variant="ghost" 
-                                        onClick={cancelEnroll} 
-                                        className="text-gray-400 hover:text-white"
-                                        disabled={loadingMFA}
-                                    >
-                                        ยกเลิก
-                                    </Button>
-                                </div>
-                                <p className="text-xs text-gray-500 mt-2">* รหัสจะเปลี่ยนทุก 30 วินาที กรุณากรอกให้ทันเวลา</p>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Empty State */}
-                    {!fetchingMFA && !enrollingData && factors.length === 0 && (
-                        <div className="flex flex-col items-center justify-center p-8 border-2 border-dashed border-white/10 rounded-xl bg-white/5">
-                            <ShieldCheck className="w-12 h-12 text-gray-500 mb-4" />
-                            <h3 className="text-lg font-bold text-white">ยังไม่ได้เปิดใช้งาน 2FA</h3>
-                            <p className="text-sm text-gray-400 text-center max-w-sm mb-6">
-                                ปกป้องบัญชีของคุณด้วยการเพิ่มการยืนยันตัวตนอีกชั้น แนะนำให้เปิดใช้งานเพื่อความปลอดภัยสูงสุด
-                            </p>
-                            <Button onClick={handleEnrollMFA} disabled={loadingMFA} className="bg-primary text-black font-bold">
-                                {loadingMFA ? <Loader2 className="mr-2 animate-spin" /> : <QrCode className="mr-2 w-4 h-4" />} ตั้งค่า 2FA ตอนนี้
-                            </Button>
-                        </div>
-                    )}
-
-                    {/* Active List */}
-                    {!fetchingMFA && factors.length > 0 && (
-                        <div className="space-y-4">
-                            <h3 className="text-sm font-bold text-gray-300">อุปกรณ์ / วิธีการยืนยันตัวตน</h3>
-                            {factors.map((factor) => (
-                                <div key={factor.id} className={`flex items-center justify-between p-4 rounded-lg border transition-all ${factor.status === 'verified' ? 'bg-green-500/5 border-green-500/20' : 'bg-yellow-500/5 border-yellow-500/20'}`}>
-                                    <div className="flex items-center gap-4">
-                                        <div className={`p-2 rounded-full ${factor.status === 'verified' ? 'bg-green-500/10 text-green-500' : 'bg-yellow-500/10 text-yellow-500'}`}>
-                                            {factor.status === 'verified' ? <ShieldCheck className="w-5 h-5" /> : <AlertTriangle className="w-5 h-5" />}
-                                        </div>
-                                        <div>
-                                            <p className="text-white font-bold text-sm">{factor.friendly_name || 'Authenticator App'}</p>
-                                            <div className="flex items-center gap-2 mt-0.5">
-                                                <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold uppercase ${factor.status === 'verified' ? "bg-green-500/10 text-green-400" : "bg-yellow-500/10 text-yellow-400"}`}>
-                                                    {factor.status === 'verified' ? 'VERIFIED' : 'PENDING'}
-                                                </span>
-                                                {factor.status !== 'verified' && <span className="text-xs text-gray-500 hidden sm:inline">(รอยืนยัน - กรุณาลบแล้วลองใหม่)</span>}
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                        <Button variant="ghost" size="sm" onClick={() => handleUnenrollMFA(factor.id)} className="text-red-400 hover:text-red-300 hover:bg-red-500/10 h-8 px-3">
-                                            <Trash2 className="w-4 h-4 mr-2" /> ลบ
-                                        </Button>
-                                    </div>
-                                </div>
-                            ))}
-                            
-                            {/* ปุ่มเพิ่มใหม่ */}
-                            {!enrollingData && (
-                                <div className="pt-4 border-t border-white/10">
-                                    <Button variant="outline" size="sm" onClick={handleEnrollMFA} className="border-white/10 text-gray-300 hover:text-white hover:bg-white/5 w-full sm:w-auto">
-                                        <QrCode className="mr-2 w-4 h-4" /> เพิ่มอุปกรณ์ใหม่
-                                    </Button>
-                                </div>
-                            )}
-                        </div>
-                    )}
-
-                    {/* ปุ่ม Reset All */}
-                    {!fetchingMFA && (
-                        <div className="mt-8 pt-8 border-t border-white/5">
-                             <h4 className="text-xs font-bold text-red-500 uppercase tracking-wider mb-2">โซนอันตราย</h4>
-                             <Button variant="destructive" size="sm" onClick={handleResetAllMFA} disabled={loadingMFA} className="w-full sm:w-auto bg-red-500/10 text-red-500 hover:bg-red-500/20 border border-red-500/20">
-                                {loadingMFA ? <Loader2 className="mr-2 animate-spin" /> : <RotateCcw className="mr-2 w-4 h-4" />}
-                                ล้างค่า 2FA ทั้งหมด (Reset)
-                             </Button>
-                             <p className="text-[10px] text-gray-600 mt-2">
-                                กดปุ่มนี้หากคุณพบปัญหารายการค้าง หรือไม่สามารถเพิ่มอุปกรณ์ใหม่ได้
-                             </p>
-                        </div>
-                    )}
-
-                </CardContent>
-            </Card>
+            
+            {/* แสดงส่วนเปลี่ยนรหัสผ่านเฉพาะ user ที่ login ด้วย email */}
+            {authProvider === 'email' && (
+              <Card className="border-white/10 bg-[#131720]">
+                <CardHeader><CardTitle className="text-white">เปลี่ยนรหัสผ่าน</CardTitle><CardDescription className="text-gray-400">รักษาบัญชีของคุณให้ปลอดภัย</CardDescription></CardHeader>
+                <form onSubmit={handleUpdatePassword}>
+                  <CardContent className="space-y-4">
+                    <div className="space-y-2"><Label className="text-gray-300">รหัสผ่านปัจจุบัน <span className="text-red-500">*</span></Label><Input type="password" className="bg-black/20 border-white/10 text-white focus-visible:ring-primary" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} required /></div>
+                    <div className="space-y-2"><Label className="text-gray-300">รหัสผ่านใหม่</Label><Input type="password" className="bg-black/20 border-white/10 text-white focus-visible:ring-primary" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} minLength={6} /></div>
+                    <div className="space-y-2"><Label className="text-gray-300">ยืนยันรหัสผ่านใหม่</Label><Input type="password" className="bg-black/20 border-white/10 text-white focus-visible:ring-primary" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} /></div>
+                  </CardContent>
+                  <CardFooter className="flex justify-end pt-6 border-t border-white/5"><Button type="submit" variant="secondary" disabled={savingPassword || !newPassword}>{savingPassword ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> กำลังดำเนินการ...</> : <><Pen className="mr-2 h-4 w-4" /> เปลี่ยนรหัส</>}</Button></CardFooter>
+                </form>
+              </Card>
+            )}
           </TabsContent>
         </Tabs>
       </div>

@@ -33,57 +33,46 @@ export default function Navbar() {
   const [user, setUser] = useState<any>(null)
   const [profile, setProfile] = useState<any>(null)
 
-  // ฟังก์ชันเช็ค User และ Level (แยกออกมาเพื่อให้เรียกซ้ำได้)
-  const checkUserAndLevel = async (sessionUser: any) => {
-    if (!sessionUser) {
-        setUser(null)
-        setProfile(null)
-        return
-    }
-
-    // 🔥 เพิ่มการเช็ค: ถ้ามี User แต่ยังไม่ผ่าน 2FA (ค้างอยู่ที่ aal1) ให้ถือว่ายังไม่มี User
-    const { data: mfaData } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
-    
-    if (mfaData && mfaData.nextLevel === 'aal2' && mfaData.currentLevel === 'aal1') {
-        // ยังทำ 2FA ไม่เสร็จ -> ซ่อน User (เสมือนยังไม่ล็อกอิน)
-        setUser(null)
-        setProfile(null)
-        return
-    }
-
-    // ถ้าผ่านหมดแล้ว ค่อยเซ็ต User
-    setUser(sessionUser)
-
-    // ดึง Profile
-    const { data: profileData } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', sessionUser.id)
-        .single()
-    
-    setProfile(profileData)
-  }
-
   useEffect(() => {
     // 1. เช็คตอนโหลดหน้าครั้งแรก
     const initData = async () => {
-        const { data: { user } } = await supabase.auth.getUser()
-        await checkUserAndLevel(user)
+      const { data: { user } } = await supabase.auth.getUser()
+      
+      if (user) {
+        setUser(user)
+        
+        // ดึง Profile
+        const { data: profileData } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', user.id)
+          .single()
+        
+        setProfile(profileData)
+      }
     }
     initData()
 
-    // 2. เช็คตอนสถานะ Auth เปลี่ยน (เช่น Login, Logout)
+    // 2. เช็คตอนสถานะ Auth เปลี่ยน
     const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
-        const currentUser = session?.user ?? null
+      const currentUser = session?.user ?? null
+      setUser(currentUser)
+      
+      if (currentUser) {
+        const { data: profileData } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', currentUser.id)
+          .single()
         
-        // ถ้าเป็นการ SIGN_IN (รวมถึงตอน Verify 2FA ผ่านแล้ว Session อัปเดต) ให้เช็คใหม่
-        await checkUserAndLevel(currentUser)
+        setProfile(profileData)
+      } else {
+        setProfile(null)
+      }
 
-        if (event === 'SIGNED_OUT') {
-            setUser(null)
-            setProfile(null)
-            router.refresh()
-        }
+      if (event === 'SIGNED_OUT') {
+        router.refresh()
+      }
     })
 
     return () => authListener.subscription.unsubscribe()
@@ -181,7 +170,6 @@ export default function Navbar() {
             <Button variant="ghost" size="icon" asChild className="text-gray-400 hover:text-primary"><Link href="/history"><History className="w-5 h-5" /></Link></Button>
           </div>
 
-          {/* 🔥 จุดที่เปลี่ยน: ถ้ามี User และผ่าน 2FA แล้วถึงจะโชว์ Profile */}
           {user ? (
             <>
               <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground relative">

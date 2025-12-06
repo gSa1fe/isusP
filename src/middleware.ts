@@ -32,54 +32,23 @@ export async function middleware(request: NextRequest) {
   
   // ✅ ใช้ getUser() เพื่อ refresh token อัตโนมัติ
   const { data: { user } } = await supabase.auth.getUser()
-  
-  // ✅ เช็คสถานะ 2FA
-  let isMfaPending = false
-  if (user) {
-    const { data: mfaData } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
-    
-    if (mfaData && mfaData.nextLevel === 'aal2' && mfaData.currentLevel === 'aal1') {
-      isMfaPending = true
-    }
-  }
 
   const path = request.nextUrl.pathname
 
-  // === หน้า /verify ===
-  if (path.startsWith('/verify')) {
-    if (!user) {
-      return NextResponse.redirect(new URL('/login', request.url))
-    }
-    // ถ้าผ่าน 2FA แล้ว -> ไปหน้าแรก
-    if (!isMfaPending) {
-      return NextResponse.redirect(new URL('/', request.url))
-    }
-    return response
-  }
-
-  // === บังคับ 2FA ก่อนเข้าหน้าอื่น ===
-  if (user && isMfaPending) {
-    const allowedPaths = ['/login', '/verify', '/api', '/_next', '/static']
-    if (!allowedPaths.some(p => path.startsWith(p))) {
-      return NextResponse.redirect(new URL('/verify', request.url))
-    }
-  }
-
   // === หน้า Login/Signup ===
+  // ถ้าล็อกอินแล้ว -> redirect ไปหน้าแรก
   if (path.startsWith('/login') || path.startsWith('/signup')) {
-    if (user && !isMfaPending) {
+    if (user) {
       return NextResponse.redirect(new URL('/', request.url))
     }
   }
 
   // === Protected Routes ===
+  // ต้องล็อกอินก่อนถึงเข้าได้
   const protectedRoutes = ['/admin', '/settings', '/library', '/history']
   if (protectedRoutes.some(r => path.startsWith(r))) {
     if (!user) {
       return NextResponse.redirect(new URL('/login', request.url))
-    }
-    if (isMfaPending) {
-      return NextResponse.redirect(new URL('/verify', request.url))
     }
   }
 
