@@ -70,7 +70,7 @@ export default function SignUpPage() {
       router.push('/')
       router.refresh()
     } else {
-      alert("กรุณาเช็คอีเมลเพื่อยืนยันตัวตน!")
+      toast("กรุณาเช็คอีเมลเพื่อยืนยันตัวตน!")
     }
 
   } catch (err: any) {
@@ -133,7 +133,7 @@ export default function SignUpPage() {
 
           </CardContent>
           <CardFooter className="flex flex-col gap-4">
-            <Button className="w-full bg-primary mt-4 hover:bg-primary/90 text-white font-bold" disabled={loading}>
+            <Button className="w-full bg-primary mt-6 hover:bg-primary/90 text-white font-bold" disabled={loading}>
               {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : 'สมัครสมาชิก'}
             </Button>
             <div className="text-sm text-center text-muted-foreground">

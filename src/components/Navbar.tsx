@@ -4,9 +4,8 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, usePathname } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import { Search, Menu, Bell, Home, BookOpen, LogOut, Settings, Library, User, History } from 'lucide-react'
+import { Search, Menu, Home, BookOpen, LogOut, Settings, Library, History } from 'lucide-react'
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import NotificationBell from '@/components/NotificationBell'
 import SearchBar from '@/components/SearchBar'
@@ -31,66 +30,74 @@ export default function Navbar() {
   const router = useRouter()
   const pathname = usePathname()
 
-  // 1. ประกาศ Hooks (State)
   const [user, setUser] = useState<any>(null)
   const [profile, setProfile] = useState<any>(null)
 
-  // ❌ ลบส่วนเช็ค if ตรงนี้ออกไป (เพราะมันบัง useEffect)
+  // ฟังก์ชันเช็ค User และ Level (แยกออกมาเพื่อให้เรียกซ้ำได้)
+  const checkUserAndLevel = async (sessionUser: any) => {
+    if (!sessionUser) {
+        setUser(null)
+        setProfile(null)
+        return
+    }
 
-  // 2. ประกาศ Hooks (Effect)
+    // 🔥 เพิ่มการเช็ค: ถ้ามี User แต่ยังไม่ผ่าน 2FA (ค้างอยู่ที่ aal1) ให้ถือว่ายังไม่มี User
+    const { data: mfaData } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+    
+    if (mfaData && mfaData.nextLevel === 'aal2' && mfaData.currentLevel === 'aal1') {
+        // ยังทำ 2FA ไม่เสร็จ -> ซ่อน User (เสมือนยังไม่ล็อกอิน)
+        setUser(null)
+        setProfile(null)
+        return
+    }
+
+    // ถ้าผ่านหมดแล้ว ค่อยเซ็ต User
+    setUser(sessionUser)
+
+    // ดึง Profile
+    const { data: profileData } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', sessionUser.id)
+        .single()
+    
+    setProfile(profileData)
+  }
+
   useEffect(() => {
-    const fetchData = async () => {
-      const { data: { user } } = await supabase.auth.getUser()
-      setUser(user)
+    // 1. เช็คตอนโหลดหน้าครั้งแรก
+    const initData = async () => {
+        const { data: { user } } = await supabase.auth.getUser()
+        await checkUserAndLevel(user)
+    }
+    initData()
 
-      if (user) {
-        const { data: profileData } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', user.id)
-          .single()
-
-        setProfile(profileData)
-
+    // 2. เช็คตอนสถานะ Auth เปลี่ยน (เช่น Login, Logout)
+    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
+        const currentUser = session?.user ?? null
         
-          }
-        }
+        // ถ้าเป็นการ SIGN_IN (รวมถึงตอน Verify 2FA ผ่านแล้ว Session อัปเดต) ให้เช็คใหม่
+        await checkUserAndLevel(currentUser)
 
-        fetchData()
-
-        const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
-          const currentUser = session?.user ?? null
-          setUser(currentUser)
-
-          if (currentUser) {
-            const { data } = await supabase.from('profiles').select('*').eq('id', currentUser.id).single()
-            setProfile(data)
-          } else {
+        if (event === 'SIGNED_OUT') {
+            setUser(null)
             setProfile(null)
-          }
-          
-
-          if (event === 'SIGNED_OUT') router.refresh()
-            
+            router.refresh()
         }
-        
-      )
-        
+    })
 
-        return () => authListener.subscription.unsubscribe()
-      }, [router])
+    return () => authListener.subscription.unsubscribe()
+  }, [router])
 
   const handleLogout = async () => {
     setUser(null)
     setProfile(null)
-    
     await fetch('/api/auth/signout', { method: 'POST' })
     await supabase.auth.signOut()
     router.push('/login')
     router.refresh()
   }
 
-  // ✅ 3. ย้ายมาเช็คตรงนี้แทน (หลังจาก Hooks ทำงานครบหมดแล้ว)
   if (pathname?.startsWith('/read/')) {
     return null
   }
@@ -98,7 +105,6 @@ export default function Navbar() {
   const avatarUrl = profile?.avatar_url || user?.user_metadata?.avatar_url
   const displayName = profile?.username || user?.user_metadata?.full_name || 'User'
 
-  // รายการเมนู (Config)
   const menuItems = [
     { href: '/', label: 'หน้าหลัก', icon: Home },
     { href: '/library', label: 'ชั้นหนังสือ', icon: Library },
@@ -111,7 +117,6 @@ export default function Navbar() {
     if (e.key === 'Enter') {
       const query = e.currentTarget.value.trim()
       if (query) {
-        // ส่งไปหน้า Search พร้อม Query Param
         router.push(`/search?q=${encodeURIComponent(query)}`)
       }
     }
@@ -121,45 +126,32 @@ export default function Navbar() {
     <header className="sticky top-0 z-50 w-full border-b border-border bg-background/80 backdrop-blur-md supports-[backdrop-filter]:bg-background/60">
       <div className="container mx-auto flex h-16 items-center justify-between px-4">
 
-        {/* --- LEFT SECTION: Logo & Mobile Menu --- */}
+        {/* --- LEFT SECTION --- */}
         <div className="flex items-center gap-4">
-
-          {/* Mobile Menu Sheet */}
           <Sheet>
             <SheetTrigger asChild>
               <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground md:hidden">
                 <Menu className="h-6 w-6" />
               </Button>
             </SheetTrigger>
-
             <SheetContent side="left" className="w-[300px] sm:w-[350px] bg-[#0d1016] border-r border-white/10 p-0 flex flex-col text-foreground">
-
-              {/* Header */}
               <div className="p-6 border-b border-white/10 bg-gradient-to-br from-[#1a1f29] to-[#0d1016]">
                 <SheetHeader className="text-left">
                   <SheetTitle className="flex items-center gap-3 text-xl font-bold text-white">
-                    <div>
-                      <span className="block leading-none">HEEDOM881</span>
-                    </div>
+                    <div><span className="block leading-none">HEEDOM881</span></div>
                   </SheetTitle>
                 </SheetHeader>
               </div>
-
-              {/* Menu Items */}
               <div className="flex-1 overflow-y-auto py-6 px-4 flex flex-col gap-2">
                 <p className="px-4 text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2">เมนู</p>
                 {menuItems.map((item) => {
                   if (item.auth && !user) return null
                   const isActive = pathname === item.href
-
                   return (
                     <Link
                       key={item.href}
                       href={item.href}
-                      className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200 group ${isActive
-                          ? 'bg-primary/10 text-primary font-semibold'
-                          : 'text-gray-400 hover:bg-white/5 hover:text-white'
-                        }`}
+                      className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200 group ${isActive ? 'bg-primary/10 text-primary font-semibold' : 'text-gray-400 hover:bg-white/5 hover:text-white'}`}
                     >
                       <item.icon className={`w-5 h-5 ${isActive ? 'text-primary' : 'text-gray-500 group-hover:text-white transition-colors'}`} />
                       {item.label}
@@ -167,18 +159,14 @@ export default function Navbar() {
                   )
                 })}
               </div>
-
-              
-
             </SheetContent>
           </Sheet>
-
           <Link href="/" className="flex items-center gap-2">
             <span className="text-xl font-bold tracking-tight text-foreground hover:opacity-90 transition-opacity hidden md:block">HEEDOM881</span>
           </Link>
         </div>
 
-        {/* --- CENTER & RIGHT SECTIONS (เหมือนเดิม) --- */}
+        {/* --- CENTER SECTION --- */}
         <div className="hidden md:flex items-center flex-1 max-w-md mx-4">
           <div className="relative w-full group">
             <Link href="/search"><Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground group-focus-within:text-primary transition-colors" /></Link>
@@ -186,12 +174,14 @@ export default function Navbar() {
           </div>
         </div>
 
+        {/* --- RIGHT SECTION --- */}
         <div className="flex items-center gap-2">
           <div className="hidden lg:flex items-center mr-4 gap-1">
             <Button variant="ghost" size="icon" asChild className="text-gray-400 hover:text-primary"><Link href="/library"><Library className="w-5 h-5" /></Link></Button>
             <Button variant="ghost" size="icon" asChild className="text-gray-400 hover:text-primary"><Link href="/history"><History className="w-5 h-5" /></Link></Button>
           </div>
 
+          {/* 🔥 จุดที่เปลี่ยน: ถ้ามี User และผ่าน 2FA แล้วถึงจะโชว์ Profile */}
           {user ? (
             <>
               <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground relative">
@@ -218,19 +208,13 @@ export default function Navbar() {
                   </DropdownMenuLabel>
                   <DropdownMenuSeparator className="bg-white/10" />
                   <DropdownMenuItem asChild className="focus:bg-white/10 cursor-pointer">
-                    <Link href="/library" className="flex w-full items-center">
-                      <Library className="mr-2 h-4 w-4 text-primary" /> ชั้นหนังสือ
-                    </Link>
+                    <Link href="/library" className="flex w-full items-center"><Library className="mr-2 h-4 w-4 text-primary" /> ชั้นหนังสือ</Link>
                   </DropdownMenuItem>
                   <DropdownMenuItem asChild className="focus:bg-white/10 cursor-pointer">
-                    <Link href="/history" className="flex w-full items-center">
-                      <History className="mr-2 h-4 w-4 text-primary" /> ชั้นหนังสือ
-                    </Link>
+                    <Link href="/history" className="flex w-full items-center"><History className="mr-2 h-4 w-4 text-primary" /> ประวัติการอ่าน</Link>
                   </DropdownMenuItem>
                   <DropdownMenuItem asChild className="focus:bg-white/10 cursor-pointer">
-                    <Link href="/settings" className="flex w-full items-center">
-                      <Settings className="mr-2 h-4 w-4" /> ตั้งค่าส่วนตัว
-                    </Link>
+                    <Link href="/settings" className="flex w-full items-center"><Settings className="mr-2 h-4 w-4" /> ตั้งค่าส่วนตัว</Link>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator className="bg-white/10" />
                   <DropdownMenuItem onClick={handleLogout} className="cursor-pointer text-red-400 focus:bg-red-500/10 focus:text-red-400">
